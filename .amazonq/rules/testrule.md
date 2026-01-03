@@ -1,0 +1,1 @@
+This is a test rule for Amazon Q coding agent.
