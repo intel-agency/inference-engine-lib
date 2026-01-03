@@ -13,17 +13,22 @@ namespace InferenceEngine.Core
     /// <summary>
     /// The core abstract base class that handles ONNX Runtime session management,
     /// cross-platform hardware acceleration detection, and resource cleanup.
-    /// Client apps should subclass this (e.g., FaceDetectionEngine, ChatBotEngine).
+    /// Supports state passing between Pre and Post processing steps via a context object.
     /// </summary>
     public abstract class BaseInferenceEngine<TInput, TOutput> : IInferenceEngine<TInput, TOutput>
     {
         protected readonly InferenceEngineOptions _options;
         protected readonly ILogger _logger;
-        protected InferenceSession _session;
-        protected RunOptions _runOptions;
+        protected InferenceSession? _session;
+        protected RunOptions? _runOptions;
 
         // Tracks initialization state to prevent usage before loading
         private bool _isLoaded = false;
+
+        // Exposed Metadata
+        public IReadOnlyDictionary<string, NodeMetadata>? InputMetadata { get; private set; }
+        public IReadOnlyDictionary<string, NodeMetadata>? OutputMetadata { get; private set; }
+        public string? PrimaryInputName { get; private set; }
 
         protected BaseInferenceEngine(InferenceEngineOptions options, ILogger? logger = null)
         {
@@ -31,17 +36,25 @@ namespace InferenceEngine.Core
             _logger = logger ?? NullLogger.Instance;
         }
 
-        /// <summary>
-        /// Template Method: Takes raw input, converts to ONNX tensors.
-        /// Must be implemented by specific app subclasses.
-        /// </summary>
-        protected abstract List<NamedOnnxValue> PreProcess(TInput input);
+        // --- Abstract Methods ---
 
         /// <summary>
-        /// Template Method: Takes raw ONNX output, converts to domain objects.
-        /// Must be implemented by specific app subclasses.
+        /// Takes raw input and returns ONNX tensors plus an optional context object.
+        /// The context object is passed to PostProcessWithContext, allowing you to share state 
+        /// (like image scaling factors) without overriding the main pipeline.
         /// </summary>
-        protected abstract TOutput PostProcess(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output);
+        /// <param name="input">Raw input data</param>
+        /// <returns>A tuple of NamedOnnxValues (inputs) and a Context object (state)</returns>
+        protected abstract (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(TInput input);
+
+        /// <summary>
+        /// Takes raw ONNX output and the context object from PreProcess, returning the final result.
+        /// </summary>
+        /// <param name="output">Disposable collection of output tensors</param>
+        /// <param name="context">The state object returned by PreProcessWithContext</param>
+        protected abstract TOutput PostProcessWithContext(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context);
+
+        // --- Public API ---
 
         /// <summary>
         /// Initializes the inference session with the best available hardware provider.
@@ -62,11 +75,16 @@ namespace InferenceEngine.Core
                     _logger.LogInformation("Initializing Inference Engine...");
                     var sessionOptions = ConfiguredSessionOptions();
 
-                    // Create the session (This is where the heavy lifting happens)
+                    // Create the session
                     _session = new InferenceSession(_options.ModelPath, sessionOptions);
                     _runOptions = new RunOptions();
 
-                    _logger.LogInformation("Model loaded successfully.");
+                    // Populate Metadata properties
+                    InputMetadata = _session.InputMetadata;
+                    OutputMetadata = _session.OutputMetadata;
+                    PrimaryInputName = InputMetadata.Keys.FirstOrDefault();
+
+                    _logger.LogInformation($"Model loaded. Provider: {_session.GetExecutionProviders().FirstOrDefault()}. Primary Input: {PrimaryInputName}");
                     _isLoaded = true;
 
                     // Handle First Run Responsibility: Warmup
@@ -83,14 +101,43 @@ namespace InferenceEngine.Core
             });
         }
 
-        /// <summary>
-        /// Configures the session options based on the OS and Hardware capabilities.
-        /// </summary>
+        public virtual async Task<TOutput> PredictAsync(TInput input)
+        {
+            if (!_isLoaded) await LoadAsync();
+
+            return await Task.Run(() =>
+            {
+                // 1. Pre-process (with context)
+                var (inputTensors, context) = PreProcessWithContext(input);
+
+                try
+                {
+                    // 2. Inference
+                    // Using null-forgiving operator (!) as LoadAsync ensures _session is not null here
+                    using var outputTensors = _session!.Run(inputTensors, _runOptions);
+
+                    // 3. Post-process (with context)
+                    return PostProcessWithContext(outputTensors, context);
+                }
+                finally
+                {
+                    // Dispose input tensors if they wrap native memory
+                    foreach (var t in inputTensors)
+                    {
+                        if (t is IDisposable disposable)
+                        {
+                            disposable.Dispose();
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Internal/Protected Helpers ---
+
         private SessionOptions ConfiguredSessionOptions()
         {
             var options = new SessionOptions();
-
-            // Optimization: heavily reduces CPU usage for standard models
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 
             if (!_options.UseGpuAcceleration)
@@ -106,7 +153,6 @@ namespace InferenceEngine.Core
                 try
                 {
                     _logger.LogInformation("Platform detected: Windows. Attempting DirectML...");
-                    // Note: Requires Microsoft.ML.OnnxRuntime.DirectML NuGet package
                     options.AppendExecutionProvider_DML(_options.DeviceId);
                 }
                 catch (Exception ex)
@@ -115,13 +161,19 @@ namespace InferenceEngine.Core
                     options.AppendExecutionProvider_CPU();
                 }
             }
-            // 2. macOS Strategy (CPU Fallback)
-            // NOTE: ONNX Runtime's CoreML execution provider bindings are not currently available
-            // as a supported Microsoft.ML.OnnxRuntime.* NuGet package.
+            // 2. macOS Strategy (CoreML)
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                _logger.LogInformation("Platform detected: macOS. Using CPU provider.");
-                options.AppendExecutionProvider_CPU();
+                try
+                {
+                    _logger.LogInformation("Platform detected: macOS. Attempting CoreML...");
+                    options.AppendExecutionProvider_CoreML(CoreMLFlags.COREML_FLAG_ENABLE_ON_SUBGRAPH);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"CoreML failed to load. Falling back to CPU. Error: {ex.Message}");
+                    options.AppendExecutionProvider_CPU();
+                }
             }
             // 3. Linux/Other Strategy (CPU Fallback)
             else
@@ -133,61 +185,42 @@ namespace InferenceEngine.Core
             return options;
         }
 
+        /// <summary>
+        /// Generates dummy input for model warmup. 
+        /// Default implementation assumes float tensors. Override this for int64/string inputs.
+        /// </summary>
+        protected virtual List<NamedOnnxValue> GetWarmupInput()
+        {
+            var inputs = new List<NamedOnnxValue>();
+            if (InputMetadata == null) return inputs;
+
+            foreach (var inputMeta in InputMetadata)
+            {
+                // Handle dynamic dimensions (-1) by defaulting to 1
+                var shape = inputMeta.Value.Dimensions.Select(d => d == -1 ? 1 : d).ToArray();
+                var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape);
+                inputs.Add(NamedOnnxValue.CreateFromTensor(inputMeta.Key, tensorData));
+            }
+            return inputs;
+        }
+
         private void PerformWarmup()
         {
             try
             {
-                _logger.LogInformation("Performing warmup inference to compile shaders...");
+                _logger.LogInformation("Performing warmup inference...");
+                var inputs = GetWarmupInput();
 
-                // Get input metadata to construct a valid dummy tensor
-                // This is generic; it creates a dummy tensor based on the model's actual expected shape
-                var inputs = new List<NamedOnnxValue>();
-                foreach (var inputMeta in _session.InputMetadata)
+                if (inputs.Count > 0)
                 {
-                    var shape = inputMeta.Value.Dimensions.Select(d => d == -1 ? 1 : d).ToArray(); // Handle dynamic axes
-                    var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape);
-                    // Note: This assumes float input. For highly specific models (like int64 text models), 
-                    // subclasses might need to override a specific 'Warmup' method.
-                    inputs.Add(NamedOnnxValue.CreateFromTensor(inputMeta.Key, tensorData));
+                    using var results = _session!.Run(inputs);
+                    _logger.LogInformation("Warmup complete.");
                 }
-
-                using var results = _session.Run(inputs);
-                _logger.LogInformation("Warmup complete.");
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($"Warmup failed (non-critical). Error: {ex.Message}");
             }
-        }
-
-        public virtual async Task<TOutput> PredictAsync(TInput input)
-        {
-            if (!_isLoaded) await LoadAsync();
-
-            return await Task.Run(() =>
-            {
-                // 1. Pre-process (Client code)
-                var inputTensors = PreProcess(input);
-
-                try
-                {
-                    // 2. Inference (Engine code)
-                    // The 'using' block ensures native memory held by output tensors is freed immediately
-                    var outputNames = _session.OutputMetadata.Keys.ToArray();
-                    using var outputTensors = _session.Run(inputTensors, outputNames, _runOptions);
-
-                    // 3. Post-process (Client code)
-                    return PostProcess(outputTensors);
-                }
-                finally
-                {
-                    // Clean up input tensors if they hold native memory (rare but possible in some bindings)
-                    foreach (var t in inputTensors)
-                    {
-                        // Some advanced implementations might need explicit disposal here
-                    }
-                }
-            });
         }
 
         public void Dispose()

@@ -5,10 +5,10 @@ namespace InferenceEngine.Core
         /// <summary>
         /// Absolute path to the .onnx model file.
         /// </summary>
-        public string ModelPath { get; set; }
+        public string ModelPath { get; set; } = string.Empty;
 
         /// <summary>
-        /// If true, attempts to use DirectML (Windows).
+        /// If true, attempts to use DirectML (Windows) or CoreML (macOS).
         /// If false, forces CPU execution.
         /// </summary>
         public bool UseGpuAcceleration { get; set; } = true;
