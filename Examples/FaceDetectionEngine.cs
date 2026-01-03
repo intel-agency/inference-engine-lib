@@ -193,9 +193,9 @@ namespace InferenceEngine.Core.Examples
             public float Height { get; set; }
         }
 
-        internal enum BoxCoordSpace { Normalized01, ModelInputPixels, SourcePixels, Unknown }
+        public enum BoxCoordSpace { Normalized01, ModelInputPixels, SourcePixels, Unknown }
 
-        internal BoxCoordSpace InferBoxCoordSpace(
+        public BoxCoordSpace InferBoxCoordSpace(
             float maxCx, float maxCy, float maxW, float maxH, 
             int srcW, int srcH, int modelW, int modelH)
         {
@@ -212,7 +212,7 @@ namespace InferenceEngine.Core.Examples
             return BoxCoordSpace.Unknown;
         }
 
-        internal static (float X, float Y, float W, float H) DecodeToSourcePixels(
+        public static (float X, float Y, float W, float H) DecodeToSourcePixels(
             BoxCoordSpace space, float x, float y, float w, float h, float sX, float sY, int srcW, int srcH)
         {
             return space switch
@@ -224,7 +224,7 @@ namespace InferenceEngine.Core.Examples
             };
         }
 
-        private List<PredictionResult> ApplyNMS(List<PredictionResult> boxes)
+        protected List<PredictionResult> ApplyNMS(List<PredictionResult> boxes)
         {
             var sorted = boxes.OrderByDescending(b => b.Confidence).ToList();
             var selected = new List<PredictionResult>();
@@ -243,7 +243,7 @@ namespace InferenceEngine.Core.Examples
             return selected;
         }
 
-        private float CalculateIoU(PredictionResult boxA, PredictionResult boxB)
+        protected float CalculateIoU(PredictionResult boxA, PredictionResult boxB)
         {
             float xA = Math.Max(boxA.X, boxB.X);
             float yA = Math.Max(boxA.Y, boxB.Y);
