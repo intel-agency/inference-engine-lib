@@ -5,9 +5,6 @@
     <Nullable>enable</Nullable><!-- Critical for native DLL loading in local apps -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
-  <ItemGroup>
-    <None Include="InferenceEngine.Core.sln" />
-  </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.0" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" /><!-- Tensors support -->

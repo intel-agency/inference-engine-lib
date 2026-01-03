@@ -1,3 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".github/copilot-instructions.md" />
+  </Folder>
+  <Project Path="../InferenceEngine.Tests/InferenceEngine.Tests.csproj" Id="657deee5-4511-4b1f-84db-7c7eab04c2a8" />
   <Project Path="d:/src/github/intel-agency/inference-engine-lib/InferenceEngine.Core.csproj" />
 </Solution>
