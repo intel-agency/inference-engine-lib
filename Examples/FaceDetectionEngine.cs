@@ -6,9 +6,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
-using InferenceEngine.Core; // Reference to the new core library
+using InferenceEngine.Core;
 
-namespace InferenceApp.Core
+namespace InferenceEngine.Core.Examples
 {
     /// <summary>
     /// Specialized Inference Engine for Face/Object Detection (YOLOv8 based).
@@ -20,7 +20,7 @@ namespace InferenceApp.Core
         // Configuration
         private const float ConfidenceThreshold = 0.45f;
         private const float IouThreshold = 0.5f;
-
+        
         // Diagnostics
         private static readonly bool BboxDiagEnabled =
             string.Equals(Environment.GetEnvironmentVariable("INFERENCEAPP_BBOX_DIAG"), "1", StringComparison.OrdinalIgnoreCase);
@@ -40,7 +40,7 @@ namespace InferenceApp.Core
             "hair drier", "toothbrush"
         ];
 
-        public FaceDetectionEngine(InferenceEngineOptions options, ILogger<FaceDetectionEngine> logger)
+        public FaceDetectionEngine(InferenceEngineOptions options, ILogger<FaceDetectionEngine> logger) 
             : base(options, logger)
         {
         }
@@ -53,7 +53,7 @@ namespace InferenceApp.Core
         protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(byte[] imageBytes)
         {
             // 1. Decode
-            using var sourceImage = SKBitmap.Decode(imageBytes)
+            using var sourceImage = SKBitmap.Decode(imageBytes) 
                 ?? throw new Exception("Failed to decode input image bytes");
 
             // 2. Get Dimensions (Metadata is auto-populated by BaseInferenceEngine)
@@ -97,10 +97,10 @@ namespace InferenceApp.Core
         /// Postprocesses the output tensors using the scaling context to map boxes.
         /// </summary>
         protected override List<PredictionResult> PostProcessWithContext(
-            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output,
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, 
             object? context)
         {
-            var scaleCtx = context as ImageScaleContext
+            var scaleCtx = context as ImageScaleContext 
                 ?? throw new InvalidOperationException("Invalid context type passed to PostProcess");
 
             var outputTensor = output.First().AsTensor<float>();
@@ -124,7 +124,7 @@ namespace InferenceApp.Core
             // Using Dimensions from Metadata for accurate space inference
             int modelH = InputMetadata![PrimaryInputName!].Dimensions[2];
             int modelW = InputMetadata![PrimaryInputName!].Dimensions[3];
-
+            
             var coordSpace = InferBoxCoordSpace(maxCx, maxCy, maxW, maxH, scaleCtx.SourceWidth, scaleCtx.SourceHeight, modelW, modelH);
 
             // 2. Filter & Decode
@@ -158,18 +158,15 @@ namespace InferenceApp.Core
 
                 // Decode
                 var (px, py, pw, ph) = DecodeToSourcePixels(
-                    coordSpace, x, y, w, h,
-                    scaleCtx.ScaleX, scaleCtx.ScaleY,
+                    coordSpace, x, y, w, h, 
+                    scaleCtx.ScaleX, scaleCtx.ScaleY, 
                     scaleCtx.SourceWidth, scaleCtx.SourceHeight);
 
                 predictions.Add(new PredictionResult
                 {
                     Label = maxClassId >= 0 && maxClassId < _labels.Length ? _labels[maxClassId] : "Unknown",
                     Confidence = maxScore,
-                    X = px,
-                    Y = py,
-                    Width = pw,
-                    Height = ph
+                    X = px, Y = py, Width = pw, Height = ph
                 });
             }
 
@@ -199,16 +196,16 @@ namespace InferenceApp.Core
         internal enum BoxCoordSpace { Normalized01, ModelInputPixels, SourcePixels, Unknown }
 
         internal BoxCoordSpace InferBoxCoordSpace(
-            float maxCx, float maxCy, float maxW, float maxH,
+            float maxCx, float maxCy, float maxW, float maxH, 
             int srcW, int srcH, int modelW, int modelH)
         {
             float maxAll = Math.Max(Math.Max(maxCx, maxCy), Math.Max(maxW, maxH));
-
+            
             if (maxAll <= CoordSpaceToleranceMargin) return BoxCoordSpace.Normalized01;
-
+            
             float modelMax = Math.Max(modelW, modelH);
             if (maxAll <= modelMax * CoordSpaceToleranceMargin) return BoxCoordSpace.ModelInputPixels;
-
+            
             float srcMax = Math.Max(srcW, srcH);
             if (maxAll <= srcMax * CoordSpaceToleranceMargin) return BoxCoordSpace.SourcePixels;
 
