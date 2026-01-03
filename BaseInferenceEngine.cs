@@ -74,7 +74,7 @@ namespace InferenceEngine.Core
                 {
                     _logger.LogInformation("Initializing Inference Engine...");
                     var sessionOptions = ConfiguredSessionOptions();
-
+                    
                     // Create the session
                     _session = new InferenceSession(_options.ModelPath, sessionOptions);
                     _runOptions = new RunOptions();
@@ -84,7 +84,7 @@ namespace InferenceEngine.Core
                     OutputMetadata = _session.OutputMetadata;
                     PrimaryInputName = InputMetadata.Keys.FirstOrDefault();
 
-                    _logger.LogInformation($"Model loaded. Provider: {_session.GetExecutionProviders().FirstOrDefault()}. Primary Input: {PrimaryInputName}");
+                    _logger.LogInformation($"Model loaded. Primary Input: {PrimaryInputName}");
                     _isLoaded = true;
 
                     // Handle First Run Responsibility: Warmup
@@ -114,7 +114,7 @@ namespace InferenceEngine.Core
                 {
                     // 2. Inference
                     // Using null-forgiving operator (!) as LoadAsync ensures _session is not null here
-                    using var outputTensors = _session!.Run(inputTensors, _runOptions);
+                    using var outputTensors = _session!.Run(inputTensors, _session.OutputNames, _runOptions);
 
                     // 3. Post-process (with context)
                     return PostProcessWithContext(outputTensors, context);
@@ -122,7 +122,7 @@ namespace InferenceEngine.Core
                 finally
                 {
                     // Dispose input tensors if they wrap native memory
-                    foreach (var t in inputTensors)
+                    foreach(var t in inputTensors)
                     {
                         if (t is IDisposable disposable)
                         {
@@ -198,7 +198,7 @@ namespace InferenceEngine.Core
             {
                 // Handle dynamic dimensions (-1) by defaulting to 1
                 var shape = inputMeta.Value.Dimensions.Select(d => d == -1 ? 1 : d).ToArray();
-                var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape);
+                var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape); 
                 inputs.Add(NamedOnnxValue.CreateFromTensor(inputMeta.Key, tensorData));
             }
             return inputs;
@@ -210,7 +210,7 @@ namespace InferenceEngine.Core
             {
                 _logger.LogInformation("Performing warmup inference...");
                 var inputs = GetWarmupInput();
-
+                
                 if (inputs.Count > 0)
                 {
                     using var results = _session!.Run(inputs);
