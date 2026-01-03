@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Critical for native DLL loading in local apps -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Base Runtime (CPU) -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
+
+    <!-- Logging Abstraction -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+  </ItemGroup>
+
+  <!-- Conditional References for Hardware Acceleration -->
+  <!-- We include both; the code conditionally loads them at runtime via the 'Native Gap' logic -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
+  </ItemGroup>
+
+</Project>
