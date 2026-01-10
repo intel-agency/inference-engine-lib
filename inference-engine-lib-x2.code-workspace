@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"dotrush.roslyn.projectOrSolutionFiles": [
+			"d:\\src\\github\\intel-agency\\inference-engine-lib\\inference-engine-lib.slnx",
+			"d:\\src\\github\\intel-agency\\inference-engine-lib\\InferenceEngine.Core.csproj",
+			"d:\\src\\github\\intel-agency\\inference-engine-lib\\InferenceEngine.Tests\\InferenceEngine.Tests.csproj"
+		]
+	}
+}
