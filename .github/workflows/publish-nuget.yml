@@ -80,7 +80,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nuget-package
-          path: ./nupkg/*.nupkg
+          path: |
+            ./nupkg/*.nupkg
+            ./nupkg/*.snupkg
           retention-days: 30
 
   publish-github-packages:
@@ -117,8 +119,7 @@ jobs:
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
             --source github \
-            --skip-duplicate \
-            --no-symbols
+            --skip-duplicate
 
   publish-nuget-org:
     name: Publish to NuGet.org
