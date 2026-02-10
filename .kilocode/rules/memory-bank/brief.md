@@ -9,4 +9,3 @@ Key value delivered:
 - Cross-platform execution with GPU acceleration support and CPU fallback.
 - Practical reference implementation for image detection and post-processing.
 - Test suite covering options, coordinate transforms, NMS behavior, and integration flows.
-
