@@ -89,7 +89,7 @@ jobs:
         
       - name: Run tests (Linux/macOS - exclude integration tests)
         if: runner.os != 'Windows'
-        run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests"
+        run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests" --collect:"XPlat Code Coverage"
         
       - name: Run tests with coverage (Windows)
         if: runner.os == 'Windows'
