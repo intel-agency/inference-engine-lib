@@ -13,7 +13,7 @@ namespace InferenceEngine.Tests
         {
             var options = new InferenceEngineOptions();
             
-            Assert.Equal(string.Empty, options.ModelPath);
+            Assert.Null(options.ModelProvider);
             Assert.True(options.UseGpuAcceleration);
             Assert.Equal(0, options.DeviceId);
             Assert.True(options.WarmupOnLoad);
@@ -52,6 +52,9 @@ namespace InferenceEngine.Tests
 
         private class TestEngine : BaseInferenceEngine<string, string>
         {
+            protected override string ModelName => "test.onnx";
+            protected override string[] ModelDownloadUrls => new[] { "http://example.com/test.onnx" };
+
             public TestEngine(InferenceEngineOptions options, Microsoft.Extensions.Logging.ILogger? logger) 
                 : base(options, logger) { }
 

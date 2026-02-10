@@ -40,6 +40,20 @@ namespace InferenceEngine.Core.Examples
             "hair drier", "toothbrush"
         ];
 
+        /// <summary>
+        /// Name of the model file required by this engine.
+        /// </summary>
+        protected override string ModelName => "yolo11n.onnx";
+
+        /// <summary>
+        /// URLs where the model can be downloaded from.
+        /// Uses Ultralytics official releases by default.
+        /// </summary>
+        protected override string[] ModelDownloadUrls =>
+        [
+            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx"
+        ];
+
         public FaceDetectionEngine(InferenceEngineOptions options, ILogger<FaceDetectionEngine> logger) 
             : base(options, logger)
         {
@@ -57,12 +71,14 @@ namespace InferenceEngine.Core.Examples
                 ?? throw new Exception("Failed to decode input image bytes");
 
             // 2. Get Dimensions (Metadata is auto-populated by BaseInferenceEngine)
-            // Dimensions are usually [-1, 3, Height, Width]
-            int modelH = InputMetadata![PrimaryInputName!].Dimensions[2];
-            int modelW = InputMetadata![PrimaryInputName!].Dimensions[3];
+            // Dimensions are usually [-1, 3, Height, Width] or [-1, 3, -1, -1] for dynamic shapes
+            var dims = InputMetadata![PrimaryInputName!].Dimensions;
+            int modelH = dims[2] > 0 ? dims[2] : 640; // Default to 640 for dynamic shapes
+            int modelW = dims[3] > 0 ? dims[3] : 640;
 
             // 3. Resize
-            var resized = sourceImage.Resize(new SKImageInfo(modelW, modelH), SKSamplingOptions.Default);
+            using var resized = sourceImage.Resize(new SKImageInfo(modelW, modelH), SKSamplingOptions.Default) 
+                ?? throw new Exception($"Failed to resize image to {modelW}x{modelH}");
 
             // 4. Calculate Scale Factors (Context)
             var context = new ImageScaleContext
@@ -74,7 +90,7 @@ namespace InferenceEngine.Core.Examples
             };
 
             // 5. To Tensor (NCHW)
-            var tensor = new DenseTensor<float>(new[] { 1, 3, modelH, modelW });
+            var tensor = new DenseTensor<float>([1, 3, modelH, modelW]);
             using var converted = resized.Copy(SKColorType.Rgba8888);
             var pixels = converted.Bytes;
             var bytesPerPixel = converted.BytesPerPixel;

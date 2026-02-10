@@ -5,7 +5,27 @@
     <Nullable>enable</Nullable><!-- Critical for native DLL loading in local apps -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <UseRidGraph>true</UseRidGraph>
+    
+    <!-- NuGet Package Metadata -->
+    <PackageId>InferenceEngine.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>intel-agency</Authors>
+    <Company>intel-agency</Company>
+    <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>
+    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/intel-agency/inference-engine-lib</PackageProjectUrl>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
+  
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" /><!-- Tensors support -->

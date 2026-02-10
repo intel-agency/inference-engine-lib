@@ -1,11 +1,28 @@
+using System;
+using InferenceEngine.Core.ModelProviders;
+
 namespace InferenceEngine.Core
 {
+    /// <summary>
+    /// Configuration options for inference engine initialization.
+    /// </summary>
     public class InferenceEngineOptions
     {
         /// <summary>
-        /// Absolute path to the .onnx model file.
+        /// Optional model provider. If not set, the engine will use its default provider
+        /// (as defined by CreateDefaultModelProvider() in the specific engine class).
         /// </summary>
-        public string ModelPath { get; set; } = string.Empty;
+        public IModelProvider? ModelProvider { get; set; }
+
+        /// <summary>
+        /// Convenience property for local model paths.
+        /// Setting this creates a LocalModelProvider internally.
+        /// </summary>
+        public string? ModelPath
+        {
+            get => ModelProvider is LocalModelProvider local ? local.ModelPath : null;
+            set => ModelProvider = value is not null ? new LocalModelProvider(value) : null;
+        }
 
         /// <summary>
         /// If true, attempts to use DirectML (Windows) or CoreML (macOS).

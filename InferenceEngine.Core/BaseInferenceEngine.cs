@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using InferenceEngine.Core.ModelProviders;
 
 namespace InferenceEngine.Core
 {
@@ -25,10 +27,37 @@ namespace InferenceEngine.Core
         // Tracks initialization state to prevent usage before loading
         private bool _isLoaded = false;
 
+        // Model Provider (created lazily from model spec)
+        private IModelProvider? _modelProvider;
+
         // Exposed Metadata
         public IReadOnlyDictionary<string, NodeMetadata>? InputMetadata { get; private set; }
         public IReadOnlyDictionary<string, NodeMetadata>? OutputMetadata { get; private set; }
         public string? PrimaryInputName { get; private set; }
+
+        // --- Model Specification (to be implemented by derived classes) ---
+
+        /// <summary>
+        /// The name of the model file (e.g., "yolo11n.onnx").
+        /// Derived classes must implement this to specify which model they require.
+        /// </summary>
+        protected abstract string ModelName { get; }
+
+        /// <summary>
+        /// URLs where the model can be downloaded from, in priority order.
+        /// Derived classes can override to provide custom model sources (e.g., on-prem servers).
+        /// If not overridden, the base engine will use a default registry or throw.
+        /// </summary>
+        protected virtual string[]? ModelDownloadUrls => null;
+
+        /// <summary>
+        /// Base directory for model cache. Defaults to LocalApplicationData.
+        /// Derived classes can override to use a custom cache location.
+        /// </summary>
+        protected virtual string ModelCacheDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "InferenceEngine",
+            "Models");
 
         protected BaseInferenceEngine(InferenceEngineOptions options, ILogger? logger = null)
         {
@@ -57,26 +86,58 @@ namespace InferenceEngine.Core
         // --- Public API ---
 
         /// <summary>
+        /// Gets or creates the model provider.
+        /// Uses options.ModelProvider if set, otherwise creates from ModelName/ModelDownloadUrls.
+        /// </summary>
+        private IModelProvider GetModelProvider()
+        {
+            // Caller can always override with explicit provider
+            if (_options.ModelProvider is not null)
+            {
+                return _options.ModelProvider;
+            }
+
+            // Lazily create provider from model spec
+            if (_modelProvider is null)
+            {
+                var urls = ModelDownloadUrls;
+                if (urls is null || urls.Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Engine '{GetType().Name}' does not specify ModelDownloadUrls. " +
+                        $"Either override ModelDownloadUrls in your engine class, or set {nameof(InferenceEngineOptions)}.{nameof(InferenceEngineOptions.ModelProvider)} explicitly.");
+                }
+
+                _modelProvider = new DownloadingModelProvider(
+                    modelName: ModelName,
+                    downloadUrls: urls,
+                    cacheDirectory: ModelCacheDirectory,
+                    logger: _logger is ILogger<DownloadingModelProvider> dl ? dl : null);
+            }
+
+            return _modelProvider;
+        }
+
+        /// <summary>
         /// Initializes the inference session with the best available hardware provider.
         /// </summary>
         public virtual async Task LoadAsync()
         {
             if (_isLoaded) return;
 
-            if (!File.Exists(_options.ModelPath))
-            {
-                throw new FileNotFoundException($"Model not found at: {_options.ModelPath}");
-            }
+            _logger.LogInformation("Initializing Inference Engine...");
+
+            // Acquire model through provider (may download if necessary)
+            var modelPath = await GetModelProvider().GetModelPathAsync(CancellationToken.None);
 
             await Task.Run(() =>
             {
                 try
                 {
-                    _logger.LogInformation("Initializing Inference Engine...");
                     var sessionOptions = ConfiguredSessionOptions();
                     
                     // Create the session
-                    _session = new InferenceSession(_options.ModelPath, sessionOptions);
+                    _session = new InferenceSession(modelPath, sessionOptions);
                     _runOptions = new RunOptions();
 
                     // Populate Metadata properties
