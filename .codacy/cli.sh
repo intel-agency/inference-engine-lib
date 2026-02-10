@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
 
-set -e +o pipefail
+set -eo pipefail
+
+# Fatal error handler
+fatal() {
+    echo "$1" >&2
+    exit 1
+}
 
 # Set up paths first
 bin_name="codacy-cli-v2"
@@ -145,5 +151,5 @@ fi
 if [ "$#" -eq 1 ] && [ "$1" = "download" ]; then
     echo "Codacy cli v2 download succeeded"
 else
-    eval "$run_command $*"
+    "$run_command" "$@"
 fi

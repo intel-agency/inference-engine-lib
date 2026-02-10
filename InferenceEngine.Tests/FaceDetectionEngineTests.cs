@@ -3,12 +3,27 @@ using InferenceEngine.Core;
 using InferenceEngine.Core.Examples;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using Xunit.SkippableFact;
 
 namespace InferenceEngine.Tests;
 
 public class FaceDetectionEngineTests
 {
     private static readonly HttpClient Http = new();
+
+    private static bool NetworkIsAvailable()
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var response = client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "https://github.com")).Result;
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static async Task<byte[]> DownloadImageAsync(string url)
     {
@@ -35,9 +50,10 @@ public class FaceDetectionEngineTests
             NullLogger<FaceDetectionEngine>.Instance);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task LoadAsync_WithDefaultProvider_ShouldPopulateMetadata()
     {
+        Skip.IfNot(NetworkIsAvailable(), "Network is not available");
         var engine = CreateEngine();
 
         await engine.LoadAsync();
@@ -47,9 +63,10 @@ public class FaceDetectionEngineTests
         Assert.False(string.IsNullOrWhiteSpace(engine.PrimaryInputName));
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task PredictAsync_WithWebImage_ShouldReturnSomePredictions()
     {
+        Skip.IfNot(NetworkIsAvailable(), "Network is not available");
         var imageBytes = await DownloadImageAsync("https://ultralytics.com/images/bus.jpg");
         var engine = CreateEngine();
 
@@ -59,9 +76,10 @@ public class FaceDetectionEngineTests
         Assert.NotEmpty(results);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task PredictAsync_WithBusImage_ShouldDetectAtLeastOnePersonOrBusOrCar()
     {
+        Skip.IfNot(NetworkIsAvailable(), "Network is not available");
         var imageBytes = await DownloadImageAsync("https://ultralytics.com/images/bus.jpg");
         var engine = CreateEngine();
 

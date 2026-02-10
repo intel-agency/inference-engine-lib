@@ -50,5 +50,8 @@
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
   </ItemGroup>
-  <!-- Note: CoreML is included in the base runtime package for macOS -->
+  <!-- CoreML package reference for macOS hardware acceleration -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.CoreML" Version="1.17.0" />
+  </ItemGroup>
 </Project>

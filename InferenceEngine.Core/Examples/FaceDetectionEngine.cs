@@ -68,11 +68,15 @@ namespace InferenceEngine.Core.Examples
         {
             // 1. Decode
             using var sourceImage = SKBitmap.Decode(imageBytes) 
-                ?? throw new Exception("Failed to decode input image bytes");
+                ?? throw new ArgumentException("Failed to decode input image bytes", nameof(imageBytes));
 
             // 2. Get Dimensions (Metadata is auto-populated by BaseInferenceEngine)
             // Dimensions are usually [-1, 3, Height, Width] or [-1, 3, -1, -1] for dynamic shapes
-            var dims = InputMetadata![PrimaryInputName!].Dimensions;
+            if (InputMetadata is null || PrimaryInputName is null || !InputMetadata.ContainsKey(PrimaryInputName))
+            {
+                throw new InvalidOperationException($"Engine is not loaded or model metadata is missing. Ensure {nameof(LoadAsync)} is called first.");
+            }
+            var dims = InputMetadata[PrimaryInputName].Dimensions;
             int modelH = dims[2] > 0 ? dims[2] : 640; // Default to 640 for dynamic shapes
             int modelW = dims[3] > 0 ? dims[3] : 640;
 
@@ -119,7 +123,7 @@ namespace InferenceEngine.Core.Examples
             var scaleCtx = context as ImageScaleContext 
                 ?? throw new InvalidOperationException("Invalid context type passed to PostProcess");
 
-            var outputTensor = output[0].AsTensor<float>();
+            var outputTensor = output.First(o => o.Name == "output0").AsTensor<float>();
             var predictions = new List<PredictionResult>();
 
             int channels = outputTensor.Dimensions[1];
