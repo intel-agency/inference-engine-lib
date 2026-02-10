@@ -52,8 +52,7 @@ Thumbs.db
 
 
 #Ignore vscode AI rules
-.github\instructions\codacy.instructions.md
+.github/instructions/codacy.instructions.md
 
 # OpenMemory - IDE/Assistant specific rules
-.cursor\rules\openmemory.mdc
-AGENTS.md
+.cursor/rules/openmemory.mdc
