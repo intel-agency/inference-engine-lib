@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable><!-- Critical for native DLL loading in local apps -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <UseRidGraph>true</UseRidGraph>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     
     <!-- NuGet Package Metadata -->
     <PackageId>InferenceEngine.Core</PackageId>

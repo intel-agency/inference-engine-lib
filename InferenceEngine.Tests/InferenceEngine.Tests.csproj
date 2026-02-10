@@ -7,6 +7,7 @@
     <IsPackable>false</IsPackable>
     <UseRidGraph>true</UseRidGraph>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,5 +26,13 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+
+  <!-- Ensure native libraries are copied to output directory -->
+  <Target Name="CopyNativeLibraries" AfterTargets="Build">
+    <ItemGroup>
+      <NativeLibs Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/runtimes/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="%(NativeLibs.FullPath)" DestinationFolder="$(TargetDir)runtimes/%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
