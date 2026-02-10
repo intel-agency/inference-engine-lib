@@ -32,8 +32,9 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
-<!-- <PackageReference Include="Microsoft.ML.OnnxRuntime.CoreML" Version="1.17.0"/> -->
+  <!-- Conditional References for Hardware Acceleration (Windows-only) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
   </ItemGroup>
+  <!-- Note: CoreML is included in the base runtime package for macOS -->
 </Project>
