@@ -103,7 +103,7 @@ namespace InferenceEngine.Core.Examples
             var scaleCtx = context as ImageScaleContext 
                 ?? throw new InvalidOperationException("Invalid context type passed to PostProcess");
 
-            var outputTensor = output.First().AsTensor<float>();
+            var outputTensor = output[0].AsTensor<float>();
             var predictions = new List<PredictionResult>();
 
             int channels = outputTensor.Dimensions[1];
