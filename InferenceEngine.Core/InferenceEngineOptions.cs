@@ -1,4 +1,3 @@
-using System;
 using InferenceEngine.Core.ModelProviders;
 
 namespace InferenceEngine.Core

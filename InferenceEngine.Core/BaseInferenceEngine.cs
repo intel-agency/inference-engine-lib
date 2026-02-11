@@ -112,7 +112,7 @@ namespace InferenceEngine.Core
                     modelName: ModelName,
                     downloadUrls: urls,
                     cacheDirectory: ModelCacheDirectory,
-                    logger: _logger is ILogger<DownloadingModelProvider> dl ? dl : null);
+                    logger: _logger);
             }
 
             return _modelProvider;

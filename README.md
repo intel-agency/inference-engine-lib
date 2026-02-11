@@ -103,12 +103,17 @@ This library is designed for building AI agents. See [AGENTS.md](AGENTS.md) for 
 
 ## Dependencies
 
+### Core
+
 - Microsoft.ML.OnnxRuntime
+- Microsoft.ML.OnnxRuntime.Extensions
 - Microsoft.Extensions.Logging.Abstractions
-- Microsoft.Extensions.DependencyInjection.Abstractions
 - SkiaSharp (for image processing examples)
-- System.Numerics.Tensors
+
+### Platform-Specific (Hardware Acceleration)
+
+- Microsoft.ML.OnnxRuntime.DirectML (Windows only)
 
 ## License
 
-MIT License - see LICENSE file for details.
+AGPL-3.0-or-later — see LICENSE file for details.

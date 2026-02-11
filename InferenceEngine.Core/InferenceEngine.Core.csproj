@@ -23,7 +23,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Title>Inference Engine</Title>
-    <Copyright>Copyright © 2026 Artificial Intelligence Agency. All rights reseved.</Copyright>
+    <Copyright>Copyright © 2026 Artificial Intelligence Agency. All rights reserved.</Copyright>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <IncludeSymbols>True</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -50,8 +50,6 @@
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
   </ItemGroup>
-  <!-- CoreML package reference for macOS hardware acceleration -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.CoreML" Version="1.17.0" />
-  </ItemGroup>
+  <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
+       No separate NuGet package exists for CoreML acceleration. -->
 </Project>

@@ -17,7 +17,7 @@ namespace InferenceEngine.Core.ModelProviders
         private readonly string _modelName;
         private readonly string[] _downloadUrls;
         private readonly string _cacheDirectory;
-        private readonly ILogger<DownloadingModelProvider> _logger;
+        private readonly ILogger _logger;
         private static readonly HttpClient Http = new();
 
         /// <summary>
@@ -31,12 +31,12 @@ namespace InferenceEngine.Core.ModelProviders
             string modelName,
             string[] downloadUrls,
             string? cacheDirectory = null,
-            ILogger<DownloadingModelProvider>? logger = null)
+            ILogger? logger = null)
         {
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
             _downloadUrls = downloadUrls ?? throw new ArgumentNullException(nameof(downloadUrls));
             _cacheDirectory = cacheDirectory ?? GetDefaultCacheDirectory();
-            _logger = logger ?? NullLogger<DownloadingModelProvider>.Instance;
+            _logger = logger ?? NullLogger.Instance;
 
             if (_downloadUrls.Length == 0)
             {

@@ -3,7 +3,6 @@ using InferenceEngine.Core;
 using InferenceEngine.Core.Examples;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-using Xunit.SkippableFact;
 
 namespace InferenceEngine.Tests;
 

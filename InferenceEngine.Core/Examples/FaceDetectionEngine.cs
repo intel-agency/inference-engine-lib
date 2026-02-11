@@ -142,8 +142,10 @@ namespace InferenceEngine.Core.Examples
             }
 
             // Using Dimensions from Metadata for accurate space inference
-            int modelH = InputMetadata![PrimaryInputName!].Dimensions[2];
-            int modelW = InputMetadata![PrimaryInputName!].Dimensions[3];
+            // Apply same dynamic-shape fallback as PreProcessWithContext
+            var postDims = InputMetadata![PrimaryInputName!].Dimensions;
+            int modelH = postDims[2] > 0 ? postDims[2] : 640;
+            int modelW = postDims[3] > 0 ? postDims[3] : 640;
             
             var coordSpace = InferBoxCoordSpace(maxCx, maxCy, maxW, maxH, scaleCtx.SourceWidth, scaleCtx.SourceHeight, modelW, modelH);
 
@@ -272,6 +274,8 @@ namespace InferenceEngine.Core.Examples
 
             float interArea = Math.Max(0, xB - xA) * Math.Max(0, yB - yA);
             float unionArea = (boxA.Width * boxA.Height) + (boxB.Width * boxB.Height) - interArea;
+
+            if (unionArea <= 0f) return 0f;
 
             return interArea / unionArea;
         }
