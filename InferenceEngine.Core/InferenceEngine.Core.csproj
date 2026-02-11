@@ -9,7 +9,9 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>InferenceEngine.Core</PackageId>
-    <Version>1.0.0</Version>
+    <!-- Version is set by CI/CD workflow using VERSION_PREFIX and github.run_number -->
+    <!-- Local builds use this default, CI overrides with -p:Version=$VERSION -->
+    <Version>1.0.0-dev</Version>
     <Authors>intel-agency</Authors>
     <Company>Artificial Intelligence Agency</Company>
     <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>

@@ -27,6 +27,13 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate inputs
+      if: inputs.upload-artifacts == 'true' && inputs.artifact-name == ''
+      run: |
+        echo "::error::'artifact-name' is required when 'upload-artifacts' is 'true'."
+        exit 1
+      shell: bash
+
     - name: Setup .NET ${{ inputs.dotnet-version }}
       uses: actions/setup-dotnet@v4
       with:
@@ -69,12 +76,10 @@ runs:
       shell: bash
       
     - name: Install ReportGenerator
-      if: runner.os == 'Windows'
       run: dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.2.0
       shell: bash
       
     - name: Generate HTML coverage report
-      if: runner.os == 'Windows'
       run: reportgenerator -reports:"InferenceEngine.Tests/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage-report" -reporttypes:Html
       shell: bash
       
