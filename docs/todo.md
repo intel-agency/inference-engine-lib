@@ -1,6 +1,6 @@
 # TODO
 
-## Implment
+## Implement
 
 ### IEL3: Refactor project/solution structure to be .NET idiomatic
 
