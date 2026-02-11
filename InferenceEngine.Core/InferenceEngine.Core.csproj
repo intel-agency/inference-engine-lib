@@ -41,6 +41,11 @@
   
   <ItemGroup>
     <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <Content Include="models.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles\any\any\;content\</PackagePath>
+    </Content>
   </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
