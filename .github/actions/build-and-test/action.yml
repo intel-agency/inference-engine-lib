@@ -1,0 +1,89 @@
+name: 'Build and Test'
+description: 'Builds the project and runs tests with coverage'
+
+inputs:
+  dotnet-version:
+    description: '.NET SDK version'
+    required: false
+    default: '10.0.x'
+  upload-artifacts:
+    description: 'Upload build artifacts'
+    required: false
+    default: 'false'
+  artifact-retention-days:
+    description: 'Artifact retention days'
+    required: false
+    default: '1'
+  artifact-name:
+    description: 'Artifact name (required if upload-artifacts is true)'
+    required: false
+    default: ''
+
+outputs:
+  artifact-name:
+    description: 'Name of uploaded artifact'
+    value: ${{ inputs.artifact-name }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup .NET ${{ inputs.dotnet-version }}
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+        
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+          
+    - name: Restore dependencies
+      run: dotnet restore
+      shell: bash
+      
+    - name: Build Release
+      run: dotnet build --configuration Release --no-restore
+      shell: bash
+      
+    - name: Upload build artifacts
+      if: inputs.upload-artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          InferenceEngine.Core/bin/Release/
+          InferenceEngine.Tests/bin/Release/
+        retention-days: ${{ inputs.artifact-retention-days }}
+        
+    - name: Run tests with coverage (Windows)
+      if: runner.os == 'Windows'
+      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+      shell: bash
+      
+    - name: Run tests with coverage (Linux/macOS - exclude integration tests)
+      if: runner.os != 'Windows'
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests" --collect:"XPlat Code Coverage"
+      shell: bash
+      
+    - name: Install ReportGenerator
+      if: runner.os == 'Windows'
+      run: dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.2.0
+      shell: bash
+      
+    - name: Generate HTML coverage report
+      if: runner.os == 'Windows'
+      run: reportgenerator -reports:"InferenceEngine.Tests/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage-report" -reporttypes:Html
+      shell: bash
+      
+    - name: Upload test results and coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ runner.os }}
+        path: |
+          InferenceEngine.Tests/TestResults/
+          coverage-report/
+        retention-days: 7

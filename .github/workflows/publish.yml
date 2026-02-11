@@ -17,32 +17,20 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    outputs:
+      artifact-name: build-output-${{ matrix.os }}
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+      - name: Build and Test
+        uses: ./.github/actions/build-and-test
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-          
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-            
-      - name: Restore dependencies
-        run: dotnet restore
-        
-      - name: Build Release
-        run: dotnet build --configuration Release --no-restore
-        
-      - name: Run tests
-        run: dotnet test --configuration Release --no-build --verbosity normal
+          upload-artifacts: 'true'
+          artifact-retention-days: '30'
+          artifact-name: build-output-${{ matrix.os }}
 
   pack:
     name: Pack NuGet
@@ -59,20 +47,12 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-            
-      - name: Restore dependencies
-        run: dotnet restore
-        
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
-        
+          name: build-output-ubuntu-latest
+          path: .
+          
       - name: Pack NuGet Package
         run: dotnet pack InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --no-build --output ./nupkg
         
