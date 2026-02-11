@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: '10.0.x'
   REGISTRY: 'https://nuget.pkg.github.com/intel-agency/index.json'
 
 jobs:
@@ -17,6 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    outputs:
+      artifact-name: build-output-${{ matrix.os }}
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,7 +54,7 @@ jobs:
           path: .
           
       - name: Pack NuGet Package
-        run: dotnet pack InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --output ./nupkg
+        run: dotnet pack InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --no-build --output ./nupkg
         
       - name: Upload NuGet Package
         uses: actions/upload-artifact@v4

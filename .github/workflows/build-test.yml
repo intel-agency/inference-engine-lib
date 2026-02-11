@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: '10.0.x'
 
 jobs:
   build-and-test:
@@ -18,8 +18,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      UPLOAD_ARTIFACTS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
     
     steps:
       - name: Checkout repository
@@ -29,6 +27,6 @@ jobs:
         uses: ./.github/actions/build-and-test
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-          upload-artifacts: ${{ env.UPLOAD_ARTIFACTS }}
+          upload-artifacts: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
           artifact-retention-days: '7'
           artifact-name: build-output-${{ matrix.os }}
