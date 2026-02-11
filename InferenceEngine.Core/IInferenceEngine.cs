@@ -8,7 +8,7 @@ namespace InferenceEngine.Core
     /// Implementation details (ONNX, TensorFlow, Mock) are abstracted away.
     /// </summary>
     /// <typeparam name="TInput">The type of input data (e.g., byte[] for images, string for text).</typeparam>
-    /// <typeparam name="TOutput">The type of output data (e.g., List<Prediction>, string response).</typeparam>
+    /// <typeparam name="TOutput">The type of output data (e.g., List&lt;Prediction&gt;, string response).</typeparam>
     public interface IInferenceEngine<TInput, TOutput> : IDisposable
     {
         /// <summary>

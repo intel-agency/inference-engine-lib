@@ -4,5 +4,11 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"dotrush.roslyn.projectOrSolutionFiles": [
+			"./inference-engine-lib.slnx",
+			"./InferenceEngine.Core/InferenceEngine.Core.csproj",
+			"./InferenceEngine.Tests/InferenceEngine.Tests.csproj"
+		]
+	}
 }

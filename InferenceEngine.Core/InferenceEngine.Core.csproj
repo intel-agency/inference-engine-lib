@@ -1,0 +1,55 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable><!-- Critical for native DLL loading in local apps -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <UseRidGraph>true</UseRidGraph>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    
+    <!-- NuGet Package Metadata -->
+    <PackageId>InferenceEngine.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>intel-agency</Authors>
+    <Company>Artificial Intelligence Agency</Company>
+    <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>
+    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression> AGPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/intel-agency/inference-engine-lib</PackageProjectUrl>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Title>Inference Engine</Title>
+    <Copyright>Copyright © 2026 Artificial Intelligence Agency. All rights reserved.</Copyright>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>True</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DebugType>embedded</DebugType>
+    <WarningLevel>9999</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DebugType>embedded</DebugType>
+    <WarningLevel>9999</WarningLevel>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup><!-- Base Runtime (CPU) -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+  </ItemGroup><!-- Conditional References for Hardware Acceleration -->
+  <!-- Conditional References for Hardware Acceleration (Windows-only) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
+  </ItemGroup>
+  <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
+       No separate NuGet package exists for CoreML acceleration. -->
+</Project>
