@@ -55,9 +55,29 @@ namespace InferenceEngine.Core
         /// Model registry for looking up download URLs by model name.
         /// Override to use a custom registry; defaults to the built-in registry.
         /// </summary>
-        protected virtual ModelRegistry ModelRegistry => _defaultRegistry ??= new ModelRegistry(logger: _logger);
+        protected virtual ModelRegistry ModelRegistry
+        {
+            get
+            {
+                if (_defaultRegistry != null)
+                {
+                    return _defaultRegistry;
+                }
+
+                lock (_registryLock)
+                {
+                    if (_defaultRegistry == null)
+                    {
+                        _defaultRegistry = new ModelRegistry(logger: _logger);
+                    }
+
+                    return _defaultRegistry;
+                }
+            }
+        }
 
         private ModelRegistry? _defaultRegistry;
+        private readonly object _registryLock = new object();
 
         /// <summary>
         /// Base directory for model cache. Defaults to LocalApplicationData.

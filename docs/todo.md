@@ -4,6 +4,14 @@
 
 ### IEL3: Refactor project/solution structure to be .NET idiomatic
 
+**Summary:** Refactor the solution into an idiomatic .NET layout with clearly separated core, test, and example projects, and consistent project configuration.
+
+**Goals:**
+- Align folder and project structure with common .NET conventions (for example, separating source, tests, and samples).
+- Ensure each project has a focused responsibility (core library, examples, tooling/benchmarks, etc.).
+- Standardize project naming, target frameworks, nullable/implicit usings, and shared build settings across projects.
+- Simplify the solution by organizing related projects together and removing obsolete or redundant entries.
+
 ## Implemented
 
 ### IEL1: Move FaceDetectionEngine into its own project ✅
@@ -11,7 +19,7 @@
 **Summary:** Created `InferenceEngine.Examples` project and moved `FaceDetectionEngine` from `InferenceEngine.Core/Examples/` to the new project.
 
 **Changes:**
-- Created `InferenceEngine.Examples/InferenceEngine.Examples.csproj` (.NET 10 library)
+- Created `InferenceEngine.Examples/InferenceEngine.Examples.csproj` (.NET 8 library)
 - Moved `FaceDetectionEngine.cs` → `InferenceEngine.Examples/`
 - Changed namespace `InferenceEngine.Core.Examples` → `InferenceEngine.Examples`
 - Added project reference in solution (`inference-engine-lib.slnx`)
