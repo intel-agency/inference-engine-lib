@@ -47,3 +47,12 @@
 - Easy to add new models to the registry
 
 **Result:** FaceDetectionEngine now relies on the registry for yolo11n.onnx URLs. All 17 tests pass.
+
+**Test Coverage Improvements:** Added comprehensive test suite (62 total tests):
+- ModelRegistryTests (17 tests) - JSON loading, lookups, edge cases
+- LocalModelProviderTests (8 tests) - file operations, error handling  
+- DownloadingModelProviderTests (8 tests) - caching, failover, error paths
+- BaseInferenceEngineTests (15 tests) - registry integration, options, lifecycle
+- Existing tests: 14 tests (Basic, CoordinateSpace, NMS, FaceDetection)
+
+**Total: 62 tests, all passing**
