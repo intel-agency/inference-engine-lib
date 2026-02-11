@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\InferenceEngine.Core\InferenceEngine.Core.csproj" />
+    <ProjectReference Include="..\InferenceEngine.Examples\InferenceEngine.Examples.csproj" />
   </ItemGroup>
 
   <ItemGroup>

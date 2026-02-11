@@ -1,4 +1,4 @@
-using InferenceEngine.Core.Examples;
+using InferenceEngine.Examples;
 
 namespace InferenceEngine.Tests;
 

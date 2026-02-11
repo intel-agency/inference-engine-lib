@@ -8,7 +8,7 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
 using InferenceEngine.Core;
 
-namespace InferenceEngine.Core.Examples
+namespace InferenceEngine.Examples
 {
     /// <summary>
     /// Specialized Inference Engine for Face/Object Detection (YOLOv8 based).

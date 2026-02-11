@@ -2,13 +2,6 @@
 
 ## Implment
 
-### IEL1: Move FaceDetecxtionEngine into its own project
-
-- New project in the solution
-- Make it a .NET Standard console application or library that can be referenced by other projects in the solution.
-
-This will allow us to use it in other projects and make it easier to maintain.
-
 ### IEL2: Add default registry of download URL locations for required models
 
 Keep a list of searchable sites for finding standard models that are request by cleint extentions. This will allow us to easily find and download the required models for our project.
@@ -23,5 +16,19 @@ For instance the yolo11n.onxx model is used in the project shoudl be findable on
 
 ### IEL3: Refactor project/solution structure to be .NET idiomatic
 
-
 ## Implemented
+
+### IEL1: Move FaceDetectionEngine into its own project ✅
+
+**Summary:** Created `InferenceEngine.Examples` project and moved `FaceDetectionEngine` from `InferenceEngine.Core/Examples/` to the new project.
+
+**Changes:**
+- Created `InferenceEngine.Examples/InferenceEngine.Examples.csproj` (.NET 10 library)
+- Moved `FaceDetectionEngine.cs` → `InferenceEngine.Examples/`
+- Changed namespace `InferenceEngine.Core.Examples` → `InferenceEngine.Examples`
+- Added project reference in solution (`inference-engine-lib.slnx`)
+- Updated `InferenceEngine.Tests` to reference new project and updated usings
+- Removed `SkiaSharp` dependency from `InferenceEngine.Core` (moved to Examples)
+- Removed empty `Examples/` directory
+
+**Result:** Core library is now lighter (no SkiaSharp dependency), FaceDetectionEngine is in its own reusable library. All 17 tests pass.
