@@ -45,7 +45,7 @@ namespace InferenceEngine.Core.ModelProviders
                 return entry.Urls;
             }
 
-            _logger.LogWarning("Model '{ModelName}' not found in registry", modelName);
+            _logger.LogDebug("Model '{ModelName}' not found in registry", modelName);
             return null;
         }
 
@@ -127,6 +127,12 @@ namespace InferenceEngine.Core.ModelProviders
             if (File.Exists(registryPath))
             {
                 return;
+            }
+
+            var directory = Path.GetDirectoryName(registryPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
             }
 
             var defaultRegistry = new ModelRegistryData

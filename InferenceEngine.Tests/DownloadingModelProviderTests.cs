@@ -77,8 +77,8 @@ public class DownloadingModelProviderTests : IDisposable
         var provider = new DownloadingModelProvider(
             modelName, 
             new[] { 
-                "http://localhost:99999/fail1.onnx", 
-                "http://localhost:99998/fail2.onnx" 
+                "http://localhost:65534/fail1.onnx", 
+                "http://localhost:65533/fail2.onnx" 
             }, 
             cacheDir,
             NullLogger.Instance);
@@ -99,7 +99,7 @@ public class DownloadingModelProviderTests : IDisposable
         // Will fail to download but should create directory first
         var provider = new DownloadingModelProvider(
             modelName, 
-            new[] { "http://localhost:99997/test.onnx" }, 
+            new[] { "http://localhost:65532/test.onnx" }, 
             cacheDir,
             NullLogger.Instance);
 
@@ -116,8 +116,14 @@ public class DownloadingModelProviderTests : IDisposable
     }
 
     [SkippableFact]
+    [Trait("Category", "Integration")]
     public async Task GetModelPathAsync_WithRealDownload_ShouldCacheAndReturnPath()
     {
+        // Only run when explicitly enabled as an integration test
+        var integrationFlag = Environment.GetEnvironmentVariable("INFERENCEENGINE_INTEGRATION_TESTS");
+        Skip.IfNot(string.Equals(integrationFlag, "1", StringComparison.Ordinal),
+            "Set INFERENCEENGINE_INTEGRATION_TESTS=1 to run this integration test.");
+        
         // Skip if network is not available
         Skip.IfNot(NetworkIsAvailable(), "Network is not available");
 
@@ -138,8 +144,14 @@ public class DownloadingModelProviderTests : IDisposable
     }
 
     [SkippableFact]
+    [Trait("Category", "Integration")]
     public async Task GetModelPathAsync_WithFirstUrlFailing_ShouldTrySecondUrl()
     {
+        // Only run when explicitly enabled as an integration test
+        var integrationFlag = Environment.GetEnvironmentVariable("INFERENCEENGINE_INTEGRATION_TESTS");
+        Skip.IfNot(string.Equals(integrationFlag, "1", StringComparison.Ordinal),
+            "Set INFERENCEENGINE_INTEGRATION_TESTS=1 to run this integration test.");
+        
         // Skip if network is not available
         Skip.IfNot(NetworkIsAvailable(), "Network is not available");
 
@@ -150,7 +162,7 @@ public class DownloadingModelProviderTests : IDisposable
         var provider = new DownloadingModelProvider(
             modelName, 
             new[] { 
-                "http://localhost:99999/nonexistent.onnx",
+                "http://localhost:65531/nonexistent.onnx",
                 "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx"
             }, 
             cacheDir,
@@ -171,7 +183,7 @@ public class DownloadingModelProviderTests : IDisposable
         
         var provider = new DownloadingModelProvider(
             modelName, 
-            new[] { "http://localhost:99996/cancel.onnx" }, 
+            new[] { "http://localhost:65530/cancel.onnx" }, 
             cacheDir,
             NullLogger.Instance);
 
@@ -186,7 +198,7 @@ public class DownloadingModelProviderTests : IDisposable
         try
         {
             using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var response = client.SendAsync(new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Head, "https://github.com")).Result;
+            var response = client.SendAsync(new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Head, "https://github.com")).GetAwaiter().GetResult();
             return response.IsSuccessStatusCode;
         }
         catch

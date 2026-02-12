@@ -44,7 +44,8 @@
     <Content Include="models.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>
-      <PackagePath>contentFiles\any\any\;content\</PackagePath>
+      <PackagePath>contentFiles\any\any\</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
   </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->

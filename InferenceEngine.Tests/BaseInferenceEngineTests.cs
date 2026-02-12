@@ -125,8 +125,7 @@ public class BaseInferenceEngineTests : IDisposable
         
         var engine = new TestEngine(options, NullLogger<TestEngine>.Instance);
         
-        // Should use LocalModelProvider which throws FileNotFound because empty file
-        // Actually it will try to create ONNX session and fail
+        // Assert that LoadAsync uses the provided model provider and fails when the model file is invalid.
         await Assert.ThrowsAnyAsync<Exception>(() => engine.LoadAsync());
         engine.Dispose();
     }

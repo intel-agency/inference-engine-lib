@@ -55,29 +55,9 @@ namespace InferenceEngine.Core
         /// Model registry for looking up download URLs by model name.
         /// Override to use a custom registry; defaults to the built-in registry.
         /// </summary>
-        protected virtual ModelRegistry ModelRegistry
-        {
-            get
-            {
-                if (_defaultRegistry != null)
-                {
-                    return _defaultRegistry;
-                }
+        protected virtual ModelRegistry ModelRegistry => _lazyRegistry.Value;
 
-                lock (_registryLock)
-                {
-                    if (_defaultRegistry == null)
-                    {
-                        _defaultRegistry = new ModelRegistry(logger: _logger);
-                    }
-
-                    return _defaultRegistry;
-                }
-            }
-        }
-
-        private ModelRegistry? _defaultRegistry;
-        private readonly object _registryLock = new object();
+        private readonly Lazy<ModelRegistry> _lazyRegistry;
 
         /// <summary>
         /// Base directory for model cache. Defaults to LocalApplicationData.
@@ -92,6 +72,7 @@ namespace InferenceEngine.Core
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? NullLogger.Instance;
+            _lazyRegistry = new Lazy<ModelRegistry>(() => new ModelRegistry(logger: _logger), LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         // --- Abstract Methods ---
