@@ -19,7 +19,7 @@
 **Summary:** Created `InferenceEngine.Examples` project and moved `FaceDetectionEngine` from `InferenceEngine.Core/Examples/` to the new project.
 
 **Changes:**
-- Created `InferenceEngine.Examples/InferenceEngine.Examples.csproj` (.NET 8 library)
+- Created `InferenceEngine.Examples/InferenceEngine.Examples.csproj` (net10.0 library)
 - Moved `FaceDetectionEngine.cs` → `InferenceEngine.Examples/`
 - Changed namespace `InferenceEngine.Core.Examples` → `InferenceEngine.Examples`
 - Added project reference in solution (`inference-engine-lib.slnx`)
