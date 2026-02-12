@@ -68,3 +68,47 @@ See `Examples/FaceDetectionEngine.cs` for a complete computer vision agent that 
 - Object detection with confidence filtering
 - Non-maximum suppression
 - Coordinate space handling
+
+---
+
+## Repository Branch Strategy
+
+### Branch Flow
+
+This repository follows a structured GitFlow-like branching model:
+
+```
+feature/<name> or personal branch (e.g., nam20485)
+         ↓
+    development
+         ↓
+       main
+         ↓
+     release
+```
+
+### Branch Naming Conventions
+
+| Branch Type | Pattern | Example |
+|-------------|---------|---------|
+| Personal branch | `<username>` | `nam20485` |
+| Feature branch | `feature/<descriptive-name>` | `feature/add-model-registry` |
+| Sub-feature branch | `feature-<base-name>/<subject>` | `feature-model-registry/json-validation` |
+
+### Pull Request Requirements
+
+- **PRs are required** for all merges into `development`, `main`, and `release`
+- Target branch for feature/personal branches: `development`
+- Automated agents will leave review comments on PRs
+- **All review comments must be resolved** before approval and merge
+- The CI/CD workflow runs on PRs to `development` and `main`
+
+### Workflow
+
+1. Create a feature branch from `development` (or personal branch for experimentation)
+2. Make changes and commit to your branch
+3. Open PR targeting `development`
+4. Address any automated and human review comments
+5. Merge to `development` once approved
+6. `development` merges to `main` via PR when ready for release
+7. `main` merges to `release` for production deployment
