@@ -40,11 +40,11 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="../README.md" Pack="true" PackagePath="\" />
     <Content Include="models.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>
-      <PackagePath>contentFiles\any\any\</PackagePath>
+      <PackagePath>contentFiles/any/any/</PackagePath>
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
   </ItemGroup>
