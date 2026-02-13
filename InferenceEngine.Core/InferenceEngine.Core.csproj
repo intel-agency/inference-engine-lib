@@ -40,13 +40,18 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="../README.md" Pack="true" PackagePath="\" />
+    <Content Include="models.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+    </Content>
   </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
-    <PackageReference Include="SkiaSharp" Version="3.119.2" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
   <!-- Conditional References for Hardware Acceleration (Windows-only) -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">

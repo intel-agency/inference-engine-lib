@@ -8,7 +8,7 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using SkiaSharp;
 using InferenceEngine.Core;
 
-namespace InferenceEngine.Core.Examples
+namespace InferenceEngine.Examples
 {
     /// <summary>
     /// Specialized Inference Engine for Face/Object Detection (YOLOv8 based).
@@ -42,17 +42,13 @@ namespace InferenceEngine.Core.Examples
 
         /// <summary>
         /// Name of the model file required by this engine.
+        /// The yolo11n.onnx model is registered in the default ModelRegistry.
         /// </summary>
         protected override string ModelName => "yolo11n.onnx";
 
-        /// <summary>
-        /// URLs where the model can be downloaded from.
-        /// Uses Ultralytics official releases by default.
-        /// </summary>
-        protected override string[] ModelDownloadUrls =>
-        [
-            "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx"
-        ];
+        // Note: ModelDownloadUrls is not overridden because yolo11n.onnx is in the default registry.
+        // The engine will automatically find download URLs from models.json.
+        // Override ModelDownloadUrls only for custom/unregistered models.
 
         public FaceDetectionEngine(InferenceEngineOptions options, ILogger<FaceDetectionEngine> logger) 
             : base(options, logger)

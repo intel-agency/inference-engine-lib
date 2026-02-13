@@ -1,6 +1,6 @@
 using System.Net;
 using InferenceEngine.Core;
-using InferenceEngine.Core.Examples;
+using InferenceEngine.Examples;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 

@@ -1,0 +1,40 @@
+{
+  "models": [
+    {
+      "name": "yolo11n.onnx",
+      "description": "YOLO11 Nano object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11n.onnx"
+      ]
+    },
+    {
+      "name": "yolo11s.onnx",
+      "description": "YOLO11 Small object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11s.onnx"
+      ]
+    },
+    {
+      "name": "yolo11m.onnx",
+      "description": "YOLO11 Medium object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11m.onnx"
+      ]
+    },
+    {
+      "name": "yolov8n.onnx",
+      "description": "YOLOv8 Nano object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.onnx",
+        "https://huggingface.co/ultralytics/YOLOv8/resolve/main/yolov8n.onnx"
+      ]
+    }
+  ]
+}

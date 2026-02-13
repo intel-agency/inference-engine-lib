@@ -4,4 +4,5 @@
   </Folder>
   <Project Path="InferenceEngine.Tests/InferenceEngine.Tests.csproj" Id="657deee5-4511-4b1f-84db-7c7eab04c2a8" />
   <Project Path="InferenceEngine.Core/InferenceEngine.Core.csproj" />
+  <Project Path="InferenceEngine.Examples/InferenceEngine.Examples.csproj" />
 </Solution>

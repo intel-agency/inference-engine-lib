@@ -1,10 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -46,9 +40,17 @@ namespace InferenceEngine.Core
         /// <summary>
         /// URLs where the model can be downloaded from, in priority order.
         /// Derived classes can override to provide custom model sources (e.g., on-prem servers).
-        /// If not overridden, the base engine will use a default registry or throw.
+        /// If not overridden, the base engine will use the default ModelRegistry to find URLs.
         /// </summary>
         protected virtual string[]? ModelDownloadUrls => null;
+
+        /// <summary>
+        /// Model registry for looking up download URLs by model name.
+        /// Override to use a custom registry; defaults to the built-in registry.
+        /// </summary>
+        protected virtual ModelRegistry ModelRegistry => _lazyRegistry.Value;
+
+        private readonly Lazy<ModelRegistry> _lazyRegistry;
 
         /// <summary>
         /// Base directory for model cache. Defaults to LocalApplicationData.
@@ -63,6 +65,7 @@ namespace InferenceEngine.Core
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? NullLogger.Instance;
+            _lazyRegistry = new Lazy<ModelRegistry>(() => new ModelRegistry(logger: _logger), LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
         // --- Abstract Methods ---
@@ -87,7 +90,7 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// Gets or creates the model provider.
-        /// Uses options.ModelProvider if set, otherwise creates from ModelName/ModelDownloadUrls.
+        /// Uses options.ModelProvider if set, otherwise creates from ModelName/ModelDownloadUrls/ModelRegistry.
         /// </summary>
         private IModelProvider GetModelProvider()
         {
@@ -101,11 +104,23 @@ namespace InferenceEngine.Core
             if (_modelProvider is null)
             {
                 var urls = ModelDownloadUrls;
+                
+                // If no URLs specified, try to look up in registry
                 if (urls is null || urls.Length == 0)
                 {
-                    throw new InvalidOperationException(
-                        $"Engine '{GetType().Name}' does not specify ModelDownloadUrls. " +
-                        $"Either override ModelDownloadUrls in your engine class, or set {nameof(InferenceEngineOptions)}.{nameof(InferenceEngineOptions.ModelProvider)} explicitly.");
+                    urls = ModelRegistry.GetModelUrls(ModelName);
+                    
+                    if (urls is null || urls.Length == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Engine '{GetType().Name}' does not specify ModelDownloadUrls and model '{ModelName}' " +
+                            $"was not found in the ModelRegistry. Either: " +
+                            $"1) Override ModelDownloadUrls in your engine class, " +
+                            $"2) Add '{ModelName}' to the model registry (models.json), or " +
+                            $"3) Set {nameof(InferenceEngineOptions)}.{nameof(InferenceEngineOptions.ModelProvider)} explicitly.");
+                    }
+                    
+                    _logger.LogInformation("Found model '{ModelName}' in registry with {Count} URL(s)", ModelName, urls.Length);
                 }
 
                 _modelProvider = new DownloadingModelProvider(
