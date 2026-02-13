@@ -1,11 +1,13 @@
 # AI Agents Integration Guide
 
 ## Overview
+
 This library provides a foundation for building AI agents that require inference capabilities. The generic interface design allows agents to integrate various AI models (computer vision, NLP, etc.) through a unified API.
 
 ## Agent Architecture
 
 ### Core Components
+
 - **IInferenceEngine<TInput, TOutput>**: Generic contract for AI inference
 - **BaseInferenceEngine**: ONNX Runtime implementation with hardware acceleration
 - **InferenceEngineOptions**: Configuration for model loading and execution
@@ -13,6 +15,7 @@ This library provides a foundation for building AI agents that require inference
 ### Agent Integration Patterns
 
 #### 1. Vision Agent
+
 ```csharp
 public class VisionAgent
 {
@@ -27,6 +30,7 @@ public class VisionAgent
 ```
 
 #### 2. Multi-Modal Agent
+
 ```csharp
 public class MultiModalAgent
 {
@@ -45,17 +49,20 @@ public class MultiModalAgent
 ## Implementation Guidelines
 
 ### Custom Agent Engines
+
 1. Inherit from `BaseInferenceEngine<TInput, TOutput>`
 2. Implement `PreProcessWithContext()` for input preparation
 3. Implement `PostProcessWithContext()` for output processing
 4. Handle agent-specific data types and transformations
 
 ### Agent Lifecycle
+
 1. **Initialization**: Load models during agent startup
 2. **Processing**: Use `PredictAsync()` for inference requests
 3. **Cleanup**: Dispose engines when agent shuts down
 
 ### Performance Considerations
+
 - Enable `WarmupOnLoad` for production agents
 - Use hardware acceleration when available
 - Implement proper resource disposal
@@ -64,6 +71,7 @@ public class MultiModalAgent
 ## Example Agent Implementation
 
 See `Examples/FaceDetectionEngine.cs` for a complete computer vision agent that demonstrates:
+
 - Image preprocessing and scaling
 - Object detection with confidence filtering
 - Non-maximum suppression
@@ -79,11 +87,11 @@ This repository follows a structured GitFlow-like branching model:
 
 ```
 feature/<name> or personal branch (e.g., nam20485)
-         ↓
+         |
     development
-         ↓
+         |
        main
-         ↓
+         |
      release
 ```
 

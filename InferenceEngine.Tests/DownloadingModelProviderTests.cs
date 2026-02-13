@@ -189,8 +189,15 @@ public class DownloadingModelProviderTests : IDisposable
 
         cts.Cancel();
         
-        // Should throw either OperationCanceledException or InvalidOperationException wrapping it
-        await Assert.ThrowsAnyAsync<Exception>(() => provider.GetModelPathAsync(cts.Token));
+        // Should throw either OperationCanceledException / TaskCanceledException
+        // or InvalidOperationException wrapping one of those
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => provider.GetModelPathAsync(cts.Token));
+
+        Assert.True(
+            ex is OperationCanceledException or TaskCanceledException ||
+            (ex is InvalidOperationException ioe &&
+             (ioe.InnerException is OperationCanceledException or TaskCanceledException)),
+            "Expected a cancellation-related exception.");
     }
 
     private static bool NetworkIsAvailable()

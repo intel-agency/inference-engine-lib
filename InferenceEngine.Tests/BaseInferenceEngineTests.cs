@@ -147,7 +147,7 @@ public class BaseInferenceEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadAsync_WithRegistryLookup_ShouldFindModel()
+    public async Task LoadAsync_WithRegistryLookup_ShouldAttemptDownload()
     {
         var registryPath = Path.Combine(_testDir, "test-registry.json");
         var registry = new ModelRegistryData
@@ -159,7 +159,7 @@ public class BaseInferenceEngineTests : IDisposable
                     Name = "unregistered-model.onnx", 
                     Description = "Test", 
                     Source = "Test",
-                    Urls = new[] { "http://example.com/unregistered-model.onnx" } 
+                    Urls = new[] { "http://localhost:65535/unregistered-model.onnx" } 
                 }
             }
         };
@@ -171,11 +171,10 @@ public class BaseInferenceEngineTests : IDisposable
             NullLogger<TestEngineNoUrls>.Instance,
             registryPath);
 
-        // The registry should find the model even though URLs aren't specified
-        var registryObj = new ModelRegistry(registryPath, NullLogger.Instance);
-        var urls = registryObj.GetModelUrls("unregistered-model.onnx");
-        Assert.NotNull(urls);
-        Assert.Single(urls);
+        // The engine should find the URL in the registry and then fail to download.
+        // This confirms the registry lookup was successful, as it didn't throw a "not found" error.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.LoadAsync());
+        Assert.Contains("Failed to download model", ex.Message);
         engine.Dispose();
     }
 

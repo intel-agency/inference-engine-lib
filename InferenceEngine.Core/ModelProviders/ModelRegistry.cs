@@ -65,7 +65,7 @@ namespace InferenceEngine.Core.ModelProviders
         /// <returns>Collection of registered model names</returns>
         public IReadOnlyCollection<string> GetRegisteredModels()
         {
-            return _entries.Keys.ToList().AsReadOnly();
+            return _entries.Keys;
         }
 
         private Dictionary<string, ModelRegistryEntry> LoadRegistry(string path)
@@ -188,7 +188,8 @@ namespace InferenceEngine.Core.ModelProviders
 
             var json = JsonSerializer.Serialize(defaultRegistry, new JsonSerializerOptions
             {
-                WriteIndented = true
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
 
             File.WriteAllText(registryPath, json);
