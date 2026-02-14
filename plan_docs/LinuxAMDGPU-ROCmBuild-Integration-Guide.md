@@ -48,7 +48,7 @@ cd \~/onnx-build-work
 
 \# Clone recursively to get all dependencies  
 \# This pulls \~1GB of source code, so it may take a few minutes.  
-git clone \--recursive \[https://github.com/microsoft/onnxruntime\](https://github.com/microsoft/onnxruntime)
+git clone \--recursive \[<https://github.com/microsoft/onnxruntime\>](<https://github.com/microsoft/onnxruntime>)
 
 ### **Step 2: Create the Build Script**
 
@@ -180,7 +180,7 @@ Ensure your OnnxInferenceEngine.cs contains this specific logic block:
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))  
 {  
-    try   
+    try
     {  
         // Tuning Options for AMD MIOpen  
         var rocmOptions \= new Dictionary\<string, string\>  
@@ -189,7 +189,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             { "miopen\_conv\_exhaustive\_search", "1" }, // Performance: Benchmark convolution algos upfront  
             { "arena\_extend\_strategy", "kSameAsRequested" } // Memory: Optimize VRAM allocation  
         };  
-          
+
         // This call searches for 'libonnxruntime\_providers\_rocm.so' adjacent to the executable.  
         // If the file is missing (deployment error), it will throw immediately.  
         options.AppendExecutionProvider("ROCmExecutionProvider", rocmOptions);  
