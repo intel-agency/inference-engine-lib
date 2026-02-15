@@ -18,7 +18,6 @@ Memory = accumulated understanding of codebase + user preferences. Like a collea
 
 ## NON-NEGOTIABLE: Memory-First Development
 
-
 Every **code implementation/modification task** = 3 phases. Other tasks (storage, recall, discussion) = skip phases.
 
 ### Phase 1: Initial Search (BEFORE code)
