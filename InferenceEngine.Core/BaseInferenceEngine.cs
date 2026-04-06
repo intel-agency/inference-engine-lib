@@ -283,7 +283,7 @@ namespace InferenceEngine.Core
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"ROCm provider failed to load. Falling back to CPU. Error: {ex.Message}");
+                    _logger.LogWarning(ex, "ROCm provider failed to load. Falling back to CPU.");
                     options.AppendExecutionProvider_CPU();
                 }
             }

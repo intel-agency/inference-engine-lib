@@ -62,5 +62,3 @@ InferenceEngine.Core/runtimes/
 
 # OpenMemory - IDE/Assistant specific rules
 .cursor/rules/openmemory.mdc
-.cursor\rules\openmemory.mdc
-AGENTS.md

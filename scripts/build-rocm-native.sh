@@ -20,7 +20,9 @@
 set -euo pipefail
 
 ONNX_RUNTIME_VERSION="v1.24.1"
-ROCM_DOCKER_IMAGE="rocm/dev-ubuntu-22.04:latest"
+# Pin to a specific ROCm image version to keep builds reproducible.
+# Update only after confirming compatibility with ONNX_RUNTIME_VERSION above.
+ROCM_DOCKER_IMAGE="rocm/dev-ubuntu-22.04:6.2.4"
 HIP_ARCHITECTURES="gfx1030;gfx1031;gfx1032;gfx1100;gfx1101"
 OUTPUT_DIR="build/linux-x64/native"
 WORK_DIR="build/onnxruntime-rocm-build"

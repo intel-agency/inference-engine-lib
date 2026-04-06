@@ -20,16 +20,28 @@
                                     Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'InferenceEngine.Core'
                                                AND '%(RuntimeCopyLocalItems.AssetType)' == 'native'
                                                AND '%(RuntimeCopyLocalItems.RuntimeIdentifier)' == 'linux-x64'" />
+    </ItemGroup>
 
-      <!-- Remove conflicting ORT native assets from other packages -->
+    <PropertyGroup>
+      <!-- Only remove conflicting ORT natives when this package actually ships its own linux-x64 assets.
+           Without this guard, a local dotnet pack (without the ROCm .so files) would strip the CPU-only
+           libonnxruntime.so leaving consumers with no native library at all. -->
+      <_HasInferenceEngineLinuxX64NativeAssets Condition="'@(_InferenceEngineNativeAssets)' != ''">true</_HasInferenceEngineLinuxX64NativeAssets>
+      <_HasInferenceEngineLinuxX64NativeAssets Condition="'@(_InferenceEngineNativeAssets)' == ''">false</_HasInferenceEngineLinuxX64NativeAssets>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <!-- Remove conflicting ORT native assets from other packages only when this package provides replacements -->
       <RuntimeCopyLocalItems Remove="@(RuntimeCopyLocalItems)"
-                             Condition="$([System.String]::Copy('%(RuntimeCopyLocalItems.NuGetPackageId)').StartsWith('Microsoft.ML.OnnxRuntime'))
+                             Condition="'$(_HasInferenceEngineLinuxX64NativeAssets)' == 'true'
+                                        AND $([System.String]::Copy('%(RuntimeCopyLocalItems.NuGetPackageId)').StartsWith('Microsoft.ML.OnnxRuntime'))
                                         AND '%(RuntimeCopyLocalItems.NuGetPackageId)' != 'InferenceEngine.Core'
                                         AND '%(RuntimeCopyLocalItems.AssetType)' == 'native'
                                         AND '%(RuntimeCopyLocalItems.RuntimeIdentifier)' == 'linux-x64'" />
 
       <!-- Re-add InferenceEngine.Core's native assets to ensure they're copied -->
-      <RuntimeCopyLocalItems Include="@(_InferenceEngineNativeAssets)" />
+      <RuntimeCopyLocalItems Include="@(_InferenceEngineNativeAssets)"
+                             Condition="'$(_HasInferenceEngineLinuxX64NativeAssets)' == 'true'" />
     </ItemGroup>
 
   </Target>
