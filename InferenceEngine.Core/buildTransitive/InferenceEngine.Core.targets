@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    This targets file ensures InferenceEngine.Core's linux-x64 native assets
+    take precedence over ALL conflicting native assets from transitive dependencies
+    (specifically Microsoft.ML.OnnxRuntime's CPU-only native libraries including
+    libonnxruntime.so, libonnxruntime_providers_shared.so, and any other ORT natives).
+
+    This prevents nondeterministic runtime loading of the wrong native library.
+  -->
+
+  <Target Name="EnsureInferenceEngineNativeAssetPrecedence"
+          AfterTargets="ResolvePackageAssets"
+          BeforeTargets="CopyFilesToOutputDirectory">
+
+    <ItemGroup>
+      <!-- Identify InferenceEngine.Core's linux-x64 native assets -->
+      <_InferenceEngineNativeAssets Include="@(RuntimeCopyLocalItems)"
+                                    Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'InferenceEngine.Core'
+                                               AND '%(RuntimeCopyLocalItems.AssetType)' == 'native'
+                                               AND '%(RuntimeCopyLocalItems.RuntimeIdentifier)' == 'linux-x64'" />
+
+      <!-- Remove conflicting ORT native assets from other packages -->
+      <RuntimeCopyLocalItems Remove="@(RuntimeCopyLocalItems)"
+                             Condition="$([System.String]::Copy('%(RuntimeCopyLocalItems.NuGetPackageId)').StartsWith('Microsoft.ML.OnnxRuntime'))
+                                        AND '%(RuntimeCopyLocalItems.NuGetPackageId)' != 'InferenceEngine.Core'
+                                        AND '%(RuntimeCopyLocalItems.AssetType)' == 'native'
+                                        AND '%(RuntimeCopyLocalItems.RuntimeIdentifier)' == 'linux-x64'" />
+
+      <!-- Re-add InferenceEngine.Core's native assets to ensure they're copied -->
+      <RuntimeCopyLocalItems Include="@(_InferenceEngineNativeAssets)" />
+    </ItemGroup>
+
+  </Target>
+
+</Project>

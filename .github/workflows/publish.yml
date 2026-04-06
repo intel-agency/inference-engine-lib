@@ -32,10 +32,14 @@ jobs:
           artifact-retention-days: '30'
           artifact-name: build-output-${{ matrix.os }}
 
+  build-rocm-native:
+    name: Build ROCm Native Libraries
+    uses: ./.github/workflows/build-rocm-native.yml
+
   pack:
     name: Pack NuGet
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: [build-and-test, build-rocm-native]
     if: success()
     
     steps:
@@ -52,6 +56,32 @@ jobs:
         with:
           name: build-output-ubuntu-latest
           path: .
+
+      - name: Download ROCm Native Libraries
+        uses: actions/download-artifact@v4
+        with:
+          name: rocm-native-libs
+          path: InferenceEngine.Core/runtimes/linux-x64/native/
+
+      - name: Verify ROCm Artifacts Placement
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lah InferenceEngine.Core/runtimes/linux-x64/native/
+
+          if [[ ! -f "InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime.so" ]]; then
+            echo "ERROR: Missing InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime.so"
+            exit 1
+          fi
+
+          if [[ ! -f "InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime_providers_rocm.so" ]]; then
+            echo "ERROR: Missing InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime_providers_rocm.so"
+            exit 1
+          fi
+
+          # Additional .so files (for example libonnxruntime_providers_shared.so) may be present and are expected.
+          stat -c '%n %s bytes' InferenceEngine.Core/runtimes/linux-x64/native/*.so || true
+          echo "All ROCm artifacts verified successfully."
           
       - name: Pack NuGet Package
         run: |

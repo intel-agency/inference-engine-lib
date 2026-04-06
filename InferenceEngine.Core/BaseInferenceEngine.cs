@@ -149,10 +149,20 @@ namespace InferenceEngine.Core
             {
                 try
                 {
-                    var sessionOptions = ConfiguredSessionOptions();
-                    
-                    // Create the session
-                    _session = new InferenceSession(modelPath, sessionOptions);
+                    using var sessionOptions = ConfiguredSessionOptions(out var rocmProviderAppended);
+
+                    try
+                    {
+                        // Create the session
+                        _session = new InferenceSession(modelPath, sessionOptions);
+                    }
+                    catch (Exception ex) when (rocmProviderAppended)
+                    {
+                        _logger.LogWarning(ex, "ROCm session initialization failed after provider append. Falling back to CPU.");
+                        using var cpuSessionOptions = CreateCpuOnlySessionOptions();
+                        _session = new InferenceSession(modelPath, cpuSessionOptions);
+                    }
+
                     _runOptions = new RunOptions();
 
                     // Populate Metadata properties
@@ -211,8 +221,9 @@ namespace InferenceEngine.Core
 
         // --- Internal/Protected Helpers ---
 
-        private SessionOptions ConfiguredSessionOptions()
+        private SessionOptions ConfiguredSessionOptions(out bool rocmProviderAppended)
         {
+            rocmProviderAppended = false;
             var options = new SessionOptions();
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 
@@ -251,13 +262,54 @@ namespace InferenceEngine.Core
                     options.AppendExecutionProvider_CPU();
                 }
             }
-            // 3. Linux/Other Strategy (CPU Fallback)
+            // 3. Linux Strategy (ROCm on x64, CPU on ARM64)
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+            {
+                _logger.LogInformation("Platform detected: Linux x64. Attempting ROCm...");
+
+                try
+                {
+                    using var rocmOptions = new OrtROCMProviderOptions();
+                    rocmOptions.UpdateOptions(new Dictionary<string, string>
+                    {
+                        ["device_id"] = _options.DeviceId.ToString(),
+                        ["miopen_conv_exhaustive_search"] = "1",
+                        ["arena_extend_strategy"] = "kSameAsRequested",
+                    });
+
+                    options.AppendExecutionProvider_ROCm(rocmOptions);
+                    rocmProviderAppended = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"ROCm provider failed to load. Falling back to CPU. Error: {ex.Message}");
+                    options.AppendExecutionProvider_CPU();
+                }
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+            {
+                _logger.LogInformation("Platform detected: Linux ARM64. Using CPU provider.");
+                options.AppendExecutionProvider_CPU();
+            }
+            // 4. Other Platform Strategy (CPU Fallback)
             else
             {
-                _logger.LogInformation("Platform detected: Linux/Other. Using default CPU provider.");
+                _logger.LogInformation("Platform detected: Other. Using default CPU provider.");
                 options.AppendExecutionProvider_CPU();
             }
 
+            return options;
+        }
+
+        private static SessionOptions CreateCpuOnlySessionOptions()
+        {
+            var options = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            };
+            options.AppendExecutionProvider_CPU();
             return options;
         }
 

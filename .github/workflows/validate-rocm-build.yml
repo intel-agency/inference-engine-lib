@@ -1,0 +1,38 @@
+name: Validate ROCm Build
+
+on:
+  push:
+    branches: [development, main]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  validate-rocm:
+    name: Build ROCm native artifacts
+    uses: ./.github/workflows/build-rocm-native.yml
+    with:
+      artifact-retention-days: 7
+
+  verify-rocm-artifacts:
+    name: Verify ROCm artifacts
+    runs-on: ubuntu-latest
+    needs: validate-rocm
+
+    steps:
+      - name: Download ROCm native libraries
+        uses: actions/download-artifact@v4
+        with:
+          name: rocm-native-libs
+          path: build/linux-x64/native/
+
+      - name: Log validation success
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lah build/linux-x64/native/
+          stat -c '%n %s bytes' \
+            build/linux-x64/native/libonnxruntime.so \
+            build/linux-x64/native/libonnxruntime_providers_rocm.so
+          echo "ROCm build validation completed successfully."
