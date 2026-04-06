@@ -72,7 +72,7 @@ runs:
       
     - name: Run tests with coverage (Linux/macOS - exclude integration tests)
       if: runner.os != 'Windows'
-      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests" --collect:"XPlat Code Coverage"
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests" --collect:"XPlat Code Coverage"
       shell: bash
       
     - name: Install ReportGenerator
