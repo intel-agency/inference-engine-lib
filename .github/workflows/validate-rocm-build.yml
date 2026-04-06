@@ -3,7 +3,15 @@ name: Validate ROCm Build
 on:
   push:
     branches: [development, main]
+    paths:
+      - 'scripts/build-rocm-native.sh'
+      - '.github/workflows/build-rocm-native.yml'
+      - '.github/workflows/validate-rocm-build.yml'
+      - 'InferenceEngine.Core/**'
+      - 'InferenceEngine.Core.IntegrationTests/**'
   workflow_dispatch:
+
+permissions: {}
 
 env:
   DOTNET_VERSION: '10.0.x'
@@ -19,6 +27,8 @@ jobs:
     name: Verify ROCm artifacts
     runs-on: ubuntu-latest
     needs: validate-rocm
+    permissions:
+      contents: read
 
     steps:
       - name: Download ROCm native libraries
@@ -41,6 +51,8 @@ jobs:
     name: Run Tier-1 native validation tests
     runs-on: ubuntu-latest
     needs: validate-rocm
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
