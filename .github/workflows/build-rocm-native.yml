@@ -19,13 +19,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for cached ROCm artifacts
+        id: rocm-cache
+        uses: actions/cache@v4
+        with:
+          path: build/linux-x64/native/*.so
+          key: rocm-native-${{ hashFiles('scripts/build-rocm-native.sh') }}
+
       - name: Build ROCm native libraries
+        if: steps.rocm-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
           echo "ROCm native build started: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           ./scripts/build-rocm-native.sh
           echo "ROCm native build completed: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Report cache hit
+        if: steps.rocm-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          echo "Using cached ROCm artifacts (cache key: rocm-native-${{ hashFiles('scripts/build-rocm-native.sh') }})"
+          ls -lh build/linux-x64/native/*.so
 
       # Level 1 validation: ensure expected artifacts exist.
       - name: Validate ROCm artifact existence
