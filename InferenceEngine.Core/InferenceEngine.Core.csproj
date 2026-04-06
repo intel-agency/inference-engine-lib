@@ -15,7 +15,7 @@
     <Authors>intel-agency</Authors>
     <Company>Artificial Intelligence Agency</Company>
     <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>
-    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents</PackageTags>
+    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents;rocm</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression> AGPL-3.0-or-later</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
