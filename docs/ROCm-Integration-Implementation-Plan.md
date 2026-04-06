@@ -156,47 +156,38 @@ The ROCm workflow runs independently and publishes the ROCm-specific NuGet packa
 
 ### Phase 1: File Porting
 
-- [ ] Create `scripts/` directory in inference-engine-lib
-- [ ] Copy `scripts/compile_onnx_rocm_docker.sh` verbatim
-- [ ] Copy `InferenceEngine.Core.IntegrationTests/` directory (3 files)
-- [ ] Add `InferenceEngine.Core.IntegrationTests` project to `inference-engine-lib.slnx`
+- [x] ✅ Create `scripts/` directory in inference-engine-lib — implemented as `scripts/build-rocm-native.sh` (rewritten with helper functions, `--clean` flag, shallow clone)
+- [x] ✅ Copy `scripts/compile_onnx_rocm_docker.sh` verbatim — adapted instead: modernized as `build-rocm-native.sh` targeting ORT v1.24.1
+- [x] ✅ Copy `InferenceEngine.Core.IntegrationTests/` directory (3 files) — ported with `FindRepoRoot()` adapted for `.slnx`
+- [x] ✅ Add `InferenceEngine.Core.IntegrationTests` project to `inference-engine-lib.slnx`
 
 ### Phase 2: Project Configuration
 
-- [ ] Add native `.so` inclusion `ItemGroup` to `InferenceEngine.Core/InferenceEngine.Core.csproj`
-- [ ] Add `rocm` to `<PackageTags>` in `.csproj`
-- [ ] Add `InferenceEngine.Core/runtimes/` to `.gitignore`
+- [x] ✅ Add native `.so` inclusion `ItemGroup` to `InferenceEngine.Core/InferenceEngine.Core.csproj` — with `Condition="Exists(...)"` guard
+- [x] ✅ Add `rocm` to `<PackageTags>` in `.csproj`
+- [x] ✅ Add `InferenceEngine.Core/runtimes/` to `.gitignore`
+- [x] ✅ Add `buildTransitive/InferenceEngine.Core.targets` — resolves native asset precedence over ORT CPU libs
 
 ### Phase 3: Workflow Creation
 
-- [ ] Create `.github/workflows/build-rocm-linux.yml` (adapted from the source — see Section 2.2)
-- [ ] Update `.github/actions/build-and-test/action.yml` test filter to exclude `NativeLibraryValidationTests`
+- [x] ✅ Create `.github/workflows/build-rocm-native.yml` — reusable `workflow_call` with L1 validation + artifact-level caching
+- [x] ✅ Create `.github/workflows/validate-rocm-build.yml` — orchestrates build + verify + Tier-1 integration tests
+- [x] ✅ Update `.github/workflows/publish.yml` — integrates ROCm build, adds `validate-native` gate before publish
+- [x] ✅ Update `.github/actions/build-and-test/action.yml` test filter to exclude `NativeLibraryValidationTests`
 
 ### Phase 4: Verify
 
-- [ ] Commit and push to trigger `build-rocm-linux.yml`
-- [ ] Confirm `build-rocm` job succeeds (~58 min)
-- [ ] Confirm `pack-nuget` job succeeds
-- [ ] Confirm `validate-native` job succeeds (all 9 Tier-1 tests pass)
+- [ ] Commit and push to trigger workflows
+- [ ] Confirm `build-rocm-native` job succeeds (~58 min first run, seconds on cache hit)
+- [ ] Confirm all L1 inline validations pass (existence, size, ELF headers)
+- [ ] Confirm `validate-native` job succeeds (Tier-1 integration tests pass)
 - [ ] Confirm `build-test.yml` still passes on all 3 OS platforms (no regression from the new test project)
 
 ### Phase 5: Publish
 
-The `publish-github-packages` job is already included in the workflow (runs after `validate-native`). Verify:
-
-- [ ] Confirm `publish-github-packages` job succeeds
+- [ ] Confirm `publish-github-packages` job succeeds (gated on `validate-native`)
+- [ ] Confirm `publish-nuget-org` job succeeds (gated on `validate-native`)
 - [ ] Confirm package appears at `https://github.com/orgs/intel-agency/packages?repo_name=inference-engine-lib`
-- [ ] Consumers can reference it via:
-  ```xml
-  <!-- nuget.config -->
-  <packageSources>
-    <add key="intel-agency" value="https://nuget.pkg.github.com/intel-agency/index.json" />
-  </packageSources>
-  ```
-  ```xml
-  <!-- .csproj -->
-  <PackageReference Include="InferenceEngine.Core" Version="1.0.0-rocm.*" />
-  ```
 
 ---
 
