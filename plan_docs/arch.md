@@ -79,11 +79,12 @@ The InferenceEngine.Core.csproj contains a specific ItemGroup to handle the nati
 
 ## **5\. Runtime Logic (BaseInferenceEngine.cs)**
 
-The engine detects the OS at runtime and loads the appropriate provider. For Linux ROCm, it uses the **String API** because there are no compile-time types for ROCm in the standard NuGet package.
+The engine detects the OS at runtime and loads the appropriate provider. For Linux ROCm, it uses the **typed ROCm API** exposed by ONNX Runtime, configuring `OrtROCMProviderOptions` and then calling `AppendExecutionProvider_ROCm(...)`.
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))  
 {  
-    // Dynamically load the custom .so provider we compiled  
-    var rocmOptions \= new Dictionary\<string, string\> { ... };  
-    options.AppendExecutionProvider("ROCmExecutionProvider", rocmOptions);  
+    // Configure the ROCm execution provider using the typed ONNX Runtime API  
+    using var rocmOptions = new OrtROCMProviderOptions();  
+    rocmOptions.UpdateOptions(new Dictionary<string, string> { ["device_id"] = deviceId, ... });  
+    options.AppendExecutionProvider_ROCm(rocmOptions);  
 }  

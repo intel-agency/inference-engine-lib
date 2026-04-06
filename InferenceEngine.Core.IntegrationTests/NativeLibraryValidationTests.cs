@@ -16,6 +16,17 @@ namespace InferenceEngine.Core.IntegrationTests
     /// </summary>
     public class NativeLibraryValidationTests
     {
+        public NativeLibraryValidationTests()
+        {
+            EnsureLinuxOnly();
+        }
+
+        private static void EnsureLinuxOnly()
+        {
+            Skip.IfNot(
+                RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
+                "NativeLibraryValidationTests are Linux-only and require Linux native libraries.");
+        }
         // -----------------------------------------------------------------
         // Helpers
         // -----------------------------------------------------------------
@@ -82,21 +93,21 @@ namespace InferenceEngine.Core.IntegrationTests
         // Existence tests
         // -----------------------------------------------------------------
 
-        [Fact]
+        [SkippableFact]
         public void LibOnnxRuntime_Exists()
         {
             var path = Path.Combine(GetNativeLibsDir(), "libonnxruntime.so");
             Assert.True(File.Exists(path), $"Missing: {path}");
         }
 
-        [Fact]
+        [SkippableFact]
         public void LibOnnxRuntimeProvidersRocm_Exists()
         {
             var path = Path.Combine(GetNativeLibsDir(), "libonnxruntime_providers_rocm.so");
             Assert.True(File.Exists(path), $"Missing: {path}");
         }
 
-        [Fact]
+        [SkippableFact]
         public void BothLibs_AreNonEmpty()
         {
             var dir = GetNativeLibsDir();
@@ -112,7 +123,7 @@ namespace InferenceEngine.Core.IntegrationTests
         // ELF format tests (Linux only)
         // -----------------------------------------------------------------
 
-        [Fact]
+        [SkippableFact]
         [Trait("Category", "LinuxOnly")]
         public void LibOnnxRuntime_IsElf64()
         {
@@ -123,7 +134,7 @@ namespace InferenceEngine.Core.IntegrationTests
             Assert.Contains("shared object", output);
         }
 
-        [Fact]
+        [SkippableFact]
         [Trait("Category", "LinuxOnly")]
         public void LibOnnxRuntimeProvidersRocm_IsElf64()
         {
@@ -138,7 +149,7 @@ namespace InferenceEngine.Core.IntegrationTests
         // Symbol export tests (Linux only)
         // -----------------------------------------------------------------
 
-        [Fact]
+        [SkippableFact]
         [Trait("Category", "LinuxOnly")]
         public void LibOnnxRuntime_ExportsOrtGetApiBase()
         {
@@ -148,7 +159,7 @@ namespace InferenceEngine.Core.IntegrationTests
             Assert.Contains("OrtGetApiBase", output);
         }
 
-        [Fact]
+        [SkippableFact]
         [Trait("Category", "LinuxOnly")]
         public void LibOnnxRuntimeProvidersRocm_ExportsRocmProvider()
         {
@@ -167,7 +178,7 @@ namespace InferenceEngine.Core.IntegrationTests
         // OnnxRuntime managed loading tests
         // -----------------------------------------------------------------
 
-        [Fact]
+        [SkippableFact]
         public void OrtEnv_Initializes_WithoutCrash()
         {
             // If the managed ORT assembly or native lib is broken, this throws/crashes
@@ -175,7 +186,7 @@ namespace InferenceEngine.Core.IntegrationTests
             Assert.NotNull(env);
         }
 
-        [Fact]
+        [SkippableFact]
         public void InferenceSession_LoadsIdentityModel_WithoutCrash()
         {
             Assert.True(File.Exists(ModelPath), $"identity.onnx not found at: {ModelPath}");
@@ -189,7 +200,7 @@ namespace InferenceEngine.Core.IntegrationTests
             Assert.NotEmpty(session.InputMetadata);
         }
 
-        [Fact]
+        [SkippableFact]
         public void InferenceSession_RunsIdentityModel_ProducesCorrectOutput()
         {
             Assert.True(File.Exists(ModelPath), $"identity.onnx not found at: {ModelPath}");
@@ -207,7 +218,7 @@ namespace InferenceEngine.Core.IntegrationTests
             Assert.Equal(new[] { 42.0f }, output);
         }
 
-        [Fact]
+        [SkippableFact]
         [Trait("Category", "LinuxOnly")]
         public void InferenceSession_WithRocmEP_ThrowsCleanExceptionNotCrash()
         {

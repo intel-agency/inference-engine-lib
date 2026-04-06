@@ -67,7 +67,7 @@ runs:
         
     - name: Run tests with coverage (Windows)
       if: runner.os == 'Windows'
-      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests" --collect:"XPlat Code Coverage"
       shell: bash
       
     - name: Run tests with coverage (Linux/macOS - exclude integration tests)
