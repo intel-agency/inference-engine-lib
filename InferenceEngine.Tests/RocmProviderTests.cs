@@ -50,6 +50,10 @@ public sealed class RocmProviderTests : IDisposable
         using (configuredOptions.Options)
         {
             Assert.NotNull(configuredOptions.Options);
+            Skip.IfNot(
+                configuredOptions.RocmProviderAppended,
+                "ROCm provider was not appended on this Linux x64 environment; ROCm configuration could not be validated.");
+            Assert.True(configuredOptions.RocmProviderAppended);
         }
     }
 
@@ -130,6 +134,10 @@ public sealed class RocmProviderTests : IDisposable
         using (configuredOptions.Options)
         {
             Assert.NotNull(configuredOptions.Options);
+            Skip.IfNot(
+                configuredOptions.RocmProviderAppended,
+                "ROCm provider was not appended on this Linux x64 environment; typed ROCm API configuration could not be validated.");
+            Assert.True(configuredOptions.RocmProviderAppended);
         }
     }
 
