@@ -155,9 +155,11 @@ Add entries to [`InferenceEngine.Core/models.json`](InferenceEngine.Core/models.
 | --- | --- | --- |
 | **Windows** | DirectML | GPU acceleration via `AppendExecutionProvider_DML` |
 | **macOS** | CoreML | Neural Engine / GPU via `AppendExecutionProvider_CoreML` |
-| **Linux** | CPU | Default provider; CUDA/ROCm support planned |
+| **Linux x64** | ROCm / CPU fallback | When `UseGpuAcceleration` is enabled, the engine attempts ROCm first; requires ROCm-enabled ONNX Runtime native assets at deployment time |
+| **Linux (other architectures)** | CPU | Uses the default CPU provider |
 
 - Set `UseGpuAcceleration = false` to force CPU on any platform.
+- On Linux x64, GPU acceleration requires ROCm to be available on the host and the application to ship with ROCm-enabled ONNX Runtime native dependencies (included in the `InferenceEngine.Core` ROCm NuGet package).
 - If the preferred provider fails to load, the engine falls back to CPU automatically.
 
 ## Examples

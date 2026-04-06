@@ -52,20 +52,19 @@ graph TD
 
 ### **4.1. Linux ROCm Compilation (Docker)**
 
-**Script:** scripts/compile\_onnx\_rocm\_docker.sh
+**Script:** scripts/build-rocm-native.sh
 
 * **Environment:** Uses rocm/dev-ubuntu-22.04 image to guarantee correct compiler (hipcc) and system dependencies (libcholmod, etc.).  
 * **Process:**  
-  1. Clones specific ONNX Runtime tag (e.g., v1.19.2).  
-  2. Compiles with \--use\_rocm and \--cmake\_extra\_defines CMAKE\_HIP\_ARCHITECTURES="gfx1030;gfx1031;gfx1100".  
+  1. Clones ONNX Runtime at `v1.24.1` (shallow `--depth 1`).  
+  2. Compiles with \--use\_rocm and \--cmake\_extra\_defines CMAKE\_HIP\_ARCHITECTURES="gfx1030;gfx1031;gfx1032;gfx1100;gfx1101".  
   3. **Outputs:** libonnxruntime.so and libonnxruntime\_providers\_rocm.so.
 
-### **4.2. CI/CD Workflow (.github/workflows/build-rocm-linux.yml)**
+### **4.2. CI/CD Workflows**
 
-1. **Build Native:** Runs the Docker script to generate .so files.  
-2. **Inject:** Copies .so files into InferenceEngine.Core/runtimes/linux-x64/native/.  
-3. **Pack:** Runs dotnet pack. The .csproj is configured to include files in runtimes/ as native assets.  
-4. **Publish:** Pushes the NuGet package to the registry.
+* `.github/workflows/build-rocm-native.yml` — Reusable `workflow_call` that runs the Docker build with L1 validation and artifact caching.
+* `.github/workflows/validate-rocm-build.yml` — Triggered on push; calls build-rocm-native + runs Tier-1 integration tests.
+* `.github/workflows/publish.yml` — Full release workflow; includes ROCm build, validate-native gate, and NuGet publish.
 
 ### **4.3. Project Configuration (.csproj)**
 

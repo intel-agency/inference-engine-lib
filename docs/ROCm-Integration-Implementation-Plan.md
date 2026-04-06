@@ -5,6 +5,13 @@
 > **Date:** 2026-04-06
 > **Status:** inference-engine-rocm has a fully passing 4-job CI pipeline (build → pack → validate → publish). This document describes how to port those assets into inference-engine-lib.
 
+> **⚠️ NOTE — Partially Outdated:** This plan was written before the integrated ROCm build assets were added to `inference-engine-lib`. The target repo now contains:
+> - `scripts/build-rocm-native.sh` — the ROCm native build entry point (replaces the `compile_onnx_rocm_docker.sh` referenced below)
+> - `.github/workflows/build-rocm-native.yml`, `validate-rocm-build.yml` — ROCm CI workflows (replace `build-rocm-linux.yml`)
+> - `InferenceEngine.Core.IntegrationTests/` — Tier-1 validation test project
+>
+> Section 2 (Files to Port) should be treated as **historical context** for what was ported from `inference-engine-rocm`. The implementation checklist in Section 4 reflects the current status. Do not follow Section 2 instructions literally — the relevant files already exist under different names in the target repo.
+
 ---
 
 ## 1. Context & Background
