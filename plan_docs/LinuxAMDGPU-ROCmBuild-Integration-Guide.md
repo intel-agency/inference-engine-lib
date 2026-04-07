@@ -48,7 +48,7 @@ cd \~/onnx-build-work
 
 \# Clone recursively to get all dependencies  
 \# This pulls \~1GB of source code, so it may take a few minutes.  
-git clone \--recursive <https://github.com/microsoft/onnxruntime>
+git clone --recursive `https://github.com/microsoft/onnxruntime.git`
 
 ### **Step 2: Create the Build Script**
 
@@ -62,7 +62,7 @@ set \-e \# Exit immediately if any command fails
 \# \=== CONFIGURATION \===  
 \# We pin to v1.19.2 because the 'main' branch is unstable and often contains  
 \# breaking changes for the build flags. Using a tagged release guarantees stability.  
-ORT\_TAG="v1.19.2"  
+ORT\_TAG="v1.24.1"  
 ROCM\_HOME="/opt/rocm"
 
 echo "\>\>\> \[1/6\] Setting up Git Safe Directory..."  

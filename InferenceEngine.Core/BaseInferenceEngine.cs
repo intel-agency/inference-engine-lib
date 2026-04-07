@@ -156,7 +156,13 @@ namespace InferenceEngine.Core
                         // Create the session
                         _session = new InferenceSession(modelPath, sessionOptions);
                     }
-                    catch (Exception ex) when (rocmProviderAppended)
+                    catch (OnnxRuntimeException ex) when (rocmProviderAppended)
+                    {
+                        _logger.LogWarning(ex, "ROCm session initialization failed after provider append. Falling back to CPU.");
+                        using var cpuSessionOptions = CreateCpuOnlySessionOptions();
+                        _session = new InferenceSession(modelPath, cpuSessionOptions);
+                    }
+                    catch (DllNotFoundException ex) when (rocmProviderAppended)
                     {
                         _logger.LogWarning(ex, "ROCm session initialization failed after provider append. Falling back to CPU.");
                         using var cpuSessionOptions = CreateCpuOnlySessionOptions();
