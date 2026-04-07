@@ -16,66 +16,51 @@ While .NET is cross-platform, high-performance AI inference relies on **Native C
 * **macOS:** Microsoft provides CoreML support in the base package. This works out-of-the-box.  
 * **Linux (AMD GPU):** **CRITICAL GAP.** Microsoft does *not* provide a NuGet package for ROCm (AMD GPU) support on Linux. The standard Linux package is CPU-only.
 
-### **The Solution: Hybrid Build Pipeline**
+### **The Solution: Dedicated ROCm NuGet Package**
 
-To support Linux AMD GPUs, we implement a **Hybrid Build Strategy**:
+ROCm acceleration for Linux is provided by a **standalone NuGet package** built and published independently:
 
-1. **Managed Code:** Built normally via dotnet build.  
-2. **Native Assets (Linux):** Compiled from source using a specialized **Docker Container**.  
-3. **Packaging:** The native assets are injected into the NuGet package during the CI process.
+* **Package:** `InferenceEngine.ROCm.Runtime.linux-x64`
+* **Source:** [`intel-agency/inference-engine-rocm`](https://github.com/intel-agency/inference-engine-rocm)
+* **Usage:** Add a `PackageReference` to `InferenceEngine.ROCm.Runtime.linux-x64` alongside `InferenceEngine.Core`. The package ships the pre-compiled `libonnxruntime.so` and `libonnxruntime_providers_rocm.so` under `runtimes/linux-x64/native/`.
+
+This keeps `InferenceEngine.Core` a pure managed package and allows the ~60-minute Docker compilation to live in its own dedicated CI pipeline.
 
 ## **3\. System Architecture**
 
-graph TD  
-    subgraph Consumer\_App  
-        App\[Agent / App\] \--\> IE\_Core\[InferenceEngine.Core\]  
+```mermaid
+graph TD
+    subgraph Consumer_App
+        App[Agent / App] --> IE_Core[InferenceEngine.Core]
     end
 
-    subgraph InferenceEngine\_Core  
-        IE\_Core \--\> BaseEngine\[BaseInferenceEngine.cs\]  
-        BaseEngine \--\> Options\[InferenceEngineOptions\]  
-        BaseEngine \--\> |Loads| ModelProvider\[Model Providers\]  
+    subgraph InferenceEngine_Core
+        IE_Core --> BaseEngine[BaseInferenceEngine.cs]
+        BaseEngine --> Options[InferenceEngineOptions]
+        BaseEngine --> |Loads| ModelProvider[Model Providers]
     end
 
-    subgraph Hardware\_Acceleration  
-        BaseEngine \-- Windows \--\> DML\[DirectML (NuGet)\]  
-        BaseEngine \-- macOS \--\> CoreML\[CoreML (Built-in)\]  
-        BaseEngine \-- Linux \--\> ROCm\[Custom Native Libs\]  
+    subgraph Hardware_Acceleration
+        BaseEngine -- Windows --> DML[DirectML (NuGet)]
+        BaseEngine -- macOS --> CoreML[CoreML (Built-in)]
+        BaseEngine -- Linux --> ROCm[InferenceEngine.ROCm.Runtime.linux-x64 (NuGet)]
     end
-
-    subgraph Build\_Pipeline  
-        Docker\[ROCm Docker Image\] \--\> |Compiles| NativeSo\[libonnxruntime\_providers\_rocm.so\]  
-        NativeSo \--\> |Injected Into| Nuget\[.nupkg\]  
-    end
+```
 
 ## **4\. Build System Details**
 
-### **4.1. Linux ROCm Compilation (Docker)**
+### **4.1. Linux ROCm Native Libraries**
 
-**Script:** scripts/build-rocm-native.sh
+ROCm native libraries are **not built in this repository**. They are compiled and packaged in
+[`intel-agency/inference-engine-rocm`](https://github.com/intel-agency/inference-engine-rocm) and published as
+`InferenceEngine.ROCm.Runtime.linux-x64` to GitHub Packages / NuGet.org.
 
-* **Environment:** Uses rocm/dev-ubuntu-22.04 image to guarantee correct compiler (hipcc) and system dependencies (libcholmod, etc.).  
-* **Process:**  
-  1. Clones ONNX Runtime at `v1.24.1` (shallow `--depth 1`).  
-  2. Compiles with \--use\_rocm and \--cmake\_extra\_defines CMAKE\_HIP\_ARCHITECTURES="gfx1030;gfx1031;gfx1032;gfx1100;gfx1101".  
-  3. **Outputs:** libonnxruntime.so and libonnxruntime\_providers\_rocm.so.
+To consume ROCm acceleration, add a reference to that package. See the `inference-engine-rocm` repo for build details.
 
 ### **4.2. CI/CD Workflows**
 
-* `.github/workflows/build-rocm-native.yml` — Reusable `workflow_call` that runs the Docker build with L1 validation and artifact caching.
-* `.github/workflows/validate-rocm-build.yml` — Triggered on push; calls build-rocm-native + runs Tier-1 integration tests.
-* `.github/workflows/publish.yml` — Full release workflow; includes ROCm build, validate-native gate, and NuGet publish.
-
-### **4.3. Project Configuration (.csproj)**
-
-The InferenceEngine.Core.csproj contains a specific ItemGroup to handle the native injection:
-
-\<ItemGroup\>  
-  \<\!-- This grabs the .so files injected by the CI pipeline \--\>  
-  \<None Include="runtimes/linux-x64/native/\*.so" Pack="true" PackagePath="runtimes/linux-x64/native"\>  
-    \<CopyToOutputDirectory\>PreserveNewest\</CopyToOutputDirectory\>  
-  \</None\>  
-\</ItemGroup\>
+* `.github/workflows/build-test.yml` — Cross-platform build and test (Windows, macOS, Linux x64/arm64).
+* `.github/workflows/publish.yml` — Packs `InferenceEngine.Core` and publishes to GitHub Packages and NuGet.org.
 
 ## **5\. Runtime Logic (BaseInferenceEngine.cs)**
 
