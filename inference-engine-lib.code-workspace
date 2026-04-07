@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../inference-engine-rocm"
 		}
 	],
 	"settings": {
