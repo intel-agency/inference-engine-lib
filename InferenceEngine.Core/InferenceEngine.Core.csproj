@@ -15,7 +15,7 @@
     <Authors>intel-agency</Authors>
     <Company>Artificial Intelligence Agency</Company>
     <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>
-    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents</PackageTags>
+    <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents;rocm</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression> AGPL-3.0-or-later</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
@@ -47,6 +47,22 @@
       <PackagePath>contentFiles/any/any/</PackagePath>
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
+
+    <!-- Include buildTransitive targets file for native asset conflict resolution -->
+    <None Include="buildTransitive/InferenceEngine.Core.targets"
+          Pack="true"
+          PackagePath="buildTransitive/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ROCm Native Libraries for Linux x64 -->
+    <!-- These are injected by CI during the pack job from the build-rocm-native workflow -->
+    <!-- The buildTransitive targets file ensures these take precedence over Microsoft.ML.OnnxRuntime's CPU-only natives -->
+    <None Include="runtimes/linux-x64/native/*.so"
+          Pack="true"
+          PackagePath="runtimes/linux-x64/native/"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('runtimes/linux-x64/native/')" />
   </ItemGroup>
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->

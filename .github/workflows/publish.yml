@@ -22,7 +22,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         
       - name: Build and Test
         uses: ./.github/actions/build-and-test
@@ -32,26 +32,56 @@ jobs:
           artifact-retention-days: '30'
           artifact-name: build-output-${{ matrix.os }}
 
+  build-rocm-native:
+    name: Build ROCm Native Libraries
+    uses: ./.github/workflows/build-rocm-native.yml
+
   pack:
     name: Pack NuGet
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: [build-and-test, build-rocm-native]
     if: success()
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: build-output-ubuntu-latest
           path: .
+
+      - name: Download ROCm Native Libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rocm-native-libs
+          path: InferenceEngine.Core/runtimes/linux-x64/native/
+
+      - name: Verify ROCm Artifacts Placement
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lah InferenceEngine.Core/runtimes/linux-x64/native/
+
+          if [[ ! -f "InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime.so" ]]; then
+            echo "ERROR: Missing InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime.so"
+            exit 1
+          fi
+
+          if [[ ! -f "InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime_providers_rocm.so" ]]; then
+            echo "ERROR: Missing InferenceEngine.Core/runtimes/linux-x64/native/libonnxruntime_providers_rocm.so"
+            exit 1
+          fi
+
+          # Additional .so files (for example libonnxruntime_providers_shared.so) may be present and are expected.
+          stat -c '%n %s bytes' InferenceEngine.Core/runtimes/linux-x64/native/*.so || true
+          echo "All ROCm artifacts verified successfully."
           
       - name: Pack NuGet Package
         run: |
@@ -64,7 +94,7 @@ jobs:
             -p:Version=$VERSION
         
       - name: Upload NuGet Package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuget-package
           path: |
@@ -72,10 +102,40 @@ jobs:
             ./nupkg/*.snupkg
           retention-days: 30
 
+  validate-native:
+    name: Validate ROCm native libraries
+    runs-on: ubuntu-latest
+    needs: [pack, build-rocm-native]
+    if: success()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download ROCm native libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rocm-native-libs
+          path: native-libs
+
+      - name: Run Tier-1 validation tests
+        env:
+          NATIVE_LIBS_DIR: ${{ github.workspace }}/native-libs
+        run: |
+          dotnet test InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --logger "console;verbosity=normal"
+
   publish-github-packages:
     name: Publish to GitHub Packages
     runs-on: ubuntu-latest
-    needs: pack
+    needs: [pack, validate-native]
     if: success()
     permissions:
       packages: write
@@ -83,12 +143,12 @@ jobs:
       
     steps:
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download NuGet Package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: nuget-package
           path: ./nupkg
@@ -111,7 +171,7 @@ jobs:
   publish-nuget-org:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
-    needs: pack
+    needs: [pack, validate-native]
     if: success()
     environment:
       name: nuget-org
@@ -119,12 +179,12 @@ jobs:
       
     steps:
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download NuGet Package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: nuget-package
           path: ./nupkg

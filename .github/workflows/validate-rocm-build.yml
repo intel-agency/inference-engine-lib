@@ -1,0 +1,79 @@
+name: Validate ROCm Build
+
+on:
+  push:
+    branches: [development, main]
+    paths:
+      - 'scripts/build-rocm-native.sh'
+      - '.github/workflows/build-rocm-native.yml'
+      - '.github/workflows/validate-rocm-build.yml'
+      - 'InferenceEngine.Core/**'
+      - 'InferenceEngine.Core.IntegrationTests/**'
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  validate-rocm:
+    name: Build ROCm native artifacts
+    uses: ./.github/workflows/build-rocm-native.yml
+    with:
+      artifact-retention-days: 7
+
+  verify-rocm-artifacts:
+    name: Verify ROCm artifacts
+    runs-on: ubuntu-latest
+    needs: validate-rocm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download ROCm native libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rocm-native-libs
+          path: build/linux-x64/native/
+
+      - name: Log validation success
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lah build/linux-x64/native/
+          stat -c '%n %s bytes' \
+            build/linux-x64/native/libonnxruntime.so \
+            build/linux-x64/native/libonnxruntime_providers_rocm.so
+          echo "ROCm build validation completed successfully."
+
+  validate-native:
+    name: Run Tier-1 native validation tests
+    runs-on: ubuntu-latest
+    needs: validate-rocm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download ROCm native libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rocm-native-libs
+          path: native-libs
+
+      - name: Run Tier-1 validation tests
+        env:
+          NATIVE_LIBS_DIR: ${{ github.workspace }}/native-libs
+        run: |
+          dotnet test InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --logger "console;verbosity=normal"
