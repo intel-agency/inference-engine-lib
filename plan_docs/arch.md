@@ -2,7 +2,7 @@
 
 ## **1\. Executive Summary**
 
-This repository hosts **InferenceEngine.Core**, a cross-platform .NET 8.0/10.0 library designed to provide a unified interface for running AI models (specifically ONNX) with hardware acceleration on Windows, Linux, and macOS.
+This repository hosts **InferenceEngine.Core**, a cross-platform .NET 10.0 library designed to provide a unified interface for running AI models (specifically ONNX) with hardware acceleration on Windows, Linux, and macOS.
 
 **Core Philosophy:** "Write Once, Run Accelerated Anywhere."
 

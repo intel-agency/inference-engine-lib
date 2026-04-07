@@ -31,7 +31,7 @@ Hardware-accelerated ONNX inference behind a generic `IInferenceEngine<TInput, T
 | Capability | Description |
 | --- | --- |
 | **Generic Interface** | `IInferenceEngine<TInput, TOutput>` — plug in any input/output type |
-| **Hardware Acceleration** | Auto-detects DirectML (Windows), CoreML (macOS), CPU fallback (Linux) |
+| **Hardware Acceleration** | Auto-detects DirectML (Windows), CoreML (macOS), ROCm on Linux x64 (with CPU fallback) |
 | **Cross-Platform** | Targets `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64` |
 | **Model Registry** | JSON-based registry with automatic download and local caching |
 | **Context Passing** | Share preprocessing state (e.g. scale factors) with postprocessing via a context object |

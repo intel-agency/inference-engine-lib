@@ -39,7 +39,11 @@
                                         AND '%(RuntimeCopyLocalItems.AssetType)' == 'native'
                                         AND '%(RuntimeCopyLocalItems.RuntimeIdentifier)' == 'linux-x64'" />
 
-      <!-- Re-add InferenceEngine.Core's native assets to ensure they're copied -->
+      <!-- Remove any existing InferenceEngine.Core native entries to prevent duplicates before re-adding -->
+      <RuntimeCopyLocalItems Remove="@(_InferenceEngineNativeAssets)"
+                             Condition="'$(_HasInferenceEngineLinuxX64NativeAssets)' == 'true'" />
+
+      <!-- Re-add InferenceEngine.Core's native assets to ensure they're copied with correct precedence -->
       <RuntimeCopyLocalItems Include="@(_InferenceEngineNativeAssets)"
                              Condition="'$(_HasInferenceEngineLinuxX64NativeAssets)' == 'true'" />
     </ItemGroup>

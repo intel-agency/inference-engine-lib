@@ -40,15 +40,17 @@ Follow these steps exactly to generate the required .so files.
 
 Open your WSL2 terminal. We need to create a dedicated workspace and clone the Microsoft ONNX Runtime repository.
 
-*Technical Note: We use \--recursive because ONNX Runtime depends on dozens of third-party submodules (Protobuf, Flatbuffers, etc.) that must be present for the build to succeed.*
+*Technical Note: We use `--recursive` because ONNX Runtime depends on dozens of third-party submodules (Protobuf, Flatbuffers, etc.) that must be present for the build to succeed.*
 
-\# Create a clean workspace directory  
-mkdir \-p \~/onnx-build-work  
-cd \~/onnx-build-work
+```bash
+# Create a clean workspace directory
+mkdir -p ~/onnx-build-work
+cd ~/onnx-build-work
 
-\# Clone recursively to get all dependencies  
-\# This pulls \~1GB of source code, so it may take a few minutes.  
-git clone --recursive `https://github.com/microsoft/onnxruntime.git`
+# Clone recursively to get all dependencies
+# This pulls ~1GB of source code, so it may take a few minutes.
+git clone --recursive https://github.com/microsoft/onnxruntime.git
+```
 
 ### **Step 2: Create the Build Script**
 
@@ -60,7 +62,7 @@ We will create a script named compile\_in\_docker.sh inside the onnxruntime fold
 set \-e \# Exit immediately if any command fails
 
 \# \=== CONFIGURATION \===  
-\# We pin to v1.19.2 because the 'main' branch is unstable and often contains  
+\# We pin to v1.24.1 because the 'main' branch is unstable and often contains  
 \# breaking changes for the build flags. Using a tagged release guarantees stability.  
 ORT\_TAG="v1.24.1"  
 ROCM\_HOME="/opt/rocm"
@@ -178,31 +180,33 @@ The standard C\# helper methods (like AppendExecutionProvider\_DML) are hardcode
 
 Ensure your OnnxInferenceEngine.cs contains this specific logic block:
 
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))  
-{  
+```csharp
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+{
     try
-    {  
-        // Tuning Options for AMD MIOpen  
-        var rocmOptions \= new Dictionary\<string, string\>  
-        {  
-            { "device\_id", "0" }, // Use the first GPU found  
-            { "miopen\_conv\_exhaustive\_search", "1" }, // Performance: Benchmark convolution algos upfront  
-            { "arena\_extend\_strategy", "kSameAsRequested" } // Memory: Optimize VRAM allocation  
-        };  
+    {
+        // Tuning Options for AMD MIOpen
+        var rocmOptions = new Dictionary<string, string>
+        {
+            { "device_id", "0" }, // Use the first GPU found
+            { "miopen_conv_exhaustive_search", "1" }, // Performance: Benchmark convolution algos upfront
+            { "arena_extend_strategy", "kSameAsRequested" } // Memory: Optimize VRAM allocation
+        };
 
-        // This call searches for 'libonnxruntime\_providers\_rocm.so' adjacent to the executable.  
-        // If the file is missing (deployment error), it will throw immediately.  
-        options.AppendExecutionProvider("ROCmExecutionProvider", rocmOptions);  
-        \_logger.LogInformation("ROCm GPU Acceleration loaded successfully.");  
-    }  
-    catch (Exception ex)  
-    {  
-        // Graceful Fallback: If the GPU init fails (driver mismatch, etc.),  
-        // fall back to CPU so the app doesn't crash entirely.  
-        \_logger.LogError($"Failed to load ROCm provider: {ex.Message}. Using CPU fallback.");  
-        options.AppendExecutionProvider\_CPU();  
-    }  
+        // This call searches for 'libonnxruntime_providers_rocm.so' adjacent to the executable.
+        // If the file is missing (deployment error), it will throw immediately.
+        options.AppendExecutionProvider("ROCmExecutionProvider", rocmOptions);
+        _logger.LogInformation("ROCm GPU Acceleration loaded successfully.");
+    }
+    catch (Exception ex)
+    {
+        // Graceful Fallback: If the GPU init fails (driver mismatch, etc.),
+        // fall back to CPU so the app doesn't crash entirely.
+        _logger.LogError($"Failed to load ROCm provider: {ex.Message}. Using CPU fallback.");
+        options.AppendExecutionProvider_CPU();
+    }
 }
+```
 
 ### **Step 4: Deployment**
 

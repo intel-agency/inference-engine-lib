@@ -9,7 +9,7 @@ role: InferenceEngine Library Agent
     <summary>
       This project is a cross-platform .NET 10 inference library that wraps ONNX Runtime behind a generic
       `IInferenceEngine&lt;TInput, TOutput&gt;` interface with automatic hardware acceleration:
-      DirectML on Windows, CoreML on macOS, and CPU on Linux.
+      DirectML on Windows, CoreML on macOS, and ROCm on Linux x64 (with CPU fallback).
     </summary>
     <guidance>
       Use this file as the default operating guide for coding agents working in this repository.
