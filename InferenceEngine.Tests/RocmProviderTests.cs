@@ -36,6 +36,7 @@ public sealed class RocmProviderTests : IDisposable
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -67,6 +68,7 @@ public sealed class RocmProviderTests : IDisposable
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
 
         var modelPath = Path.Combine(_testDir, "minimal-identity.onnx");
         CreateMinimalOnnxModel(modelPath);
@@ -95,6 +97,7 @@ public sealed class RocmProviderTests : IDisposable
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.Arm64,
             "Test requires Linux ARM64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -119,6 +122,7 @@ public sealed class RocmProviderTests : IDisposable
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -149,6 +153,7 @@ public sealed class RocmProviderTests : IDisposable
     {
         // Platform-specific: this assertion is Linux-only to stay focused on ROCm-capable OS path.
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Linux), "Test requires Linux platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -176,6 +181,27 @@ public sealed class RocmProviderTests : IDisposable
         if (Directory.Exists(_testDir))
         {
             Directory.Delete(_testDir, true);
+        }
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when the ONNX Runtime native library can be loaded;
+    /// <see langword="false"/> when the library is absent or has unresolvable dependencies.
+    /// </summary>
+    private static bool IsNativeOnnxRuntimeAvailable()
+    {
+        try
+        {
+            using var opts = new SessionOptions();
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is DllNotFoundException
+            || ex is TypeInitializationException
+            || (ex is TargetInvocationException { InnerException: Exception inner }
+                && (inner is DllNotFoundException or TypeInitializationException)))
+        {
+            return false;
         }
     }
 
