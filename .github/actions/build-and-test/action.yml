@@ -6,6 +6,10 @@ inputs:
     description: '.NET SDK version'
     required: false
     default: '10.0.x'
+  nuget-token:
+    description: 'GitHub token for authenticating with GitHub Packages (read:packages)'
+    required: false
+    default: ''
   upload-artifacts:
     description: 'Upload build artifacts'
     required: false
@@ -13,7 +17,7 @@ inputs:
   artifact-retention-days:
     description: 'Artifact retention days'
     required: false
-    default: '1'
+    default: '5'
   artifact-name:
     description: 'Artifact name (required if upload-artifacts is true)'
     required: false
@@ -48,6 +52,8 @@ runs:
           ${{ runner.os }}-nuget-
           
     - name: Restore dependencies
+      env:
+        NUGET_AUTH_TOKEN: ${{ inputs.nuget-token }}
       run: dotnet restore
       shell: bash
       

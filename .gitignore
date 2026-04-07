@@ -35,6 +35,8 @@ coverage.*
 *.snupkg
 .nuget/
 packages/
+# Local nuget.config overrides with real credentials (use nuget.config.local for personal tokens)
+nuget.config.local
 
 # Rider / JetBrains
 .idea/

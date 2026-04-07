@@ -24,9 +24,10 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         
       - name: Build and Test
-        uses: ./.github/actions/build-and-test
+        uses: ./.github/actions/build-and-test@main
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+          nuget-token: ${{ secrets.GITHUB_TOKEN }}
           upload-artifacts: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
           artifact-retention-days: '7'
           artifact-name: build-output-${{ matrix.os }}
