@@ -29,6 +29,13 @@ namespace InferenceEngine.Core
         public IReadOnlyDictionary<string, NodeMetadata>? OutputMetadata { get; private set; }
         public string? PrimaryInputName { get; private set; }
 
+        /// <summary>
+        /// Returns <see langword="true"/> when the ONNX session was successfully initialized
+        /// with the ROCm execution provider. <see langword="false"/> on non-Linux-x64 platforms,
+        /// when ROCm initialization failed, or when CPU fallback was used.
+        /// </summary>
+        public bool IsRocmSessionActive { get; private set; }
+
         // --- Model Specification (to be implemented by derived classes) ---
 
         /// <summary>
@@ -155,6 +162,7 @@ namespace InferenceEngine.Core
                     {
                         // Create the session
                         _session = new InferenceSession(modelPath, sessionOptions);
+                        IsRocmSessionActive = rocmProviderAppended;
                     }
                     catch (Exception ex) when (rocmProviderAppended && (ex is OnnxRuntimeException || ex is DllNotFoundException))
                     {
