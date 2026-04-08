@@ -82,4 +82,4 @@ jobs:
         with:
           name: rocm-gpu-test-results
           path: InferenceEngine.Tests/TestResults/
-          retention-days: 7
+          retention-days: 30
