@@ -1,0 +1,267 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "restore",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "restore",
+                "${workspaceFolder}/inference-engine-lib.slnx"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "build-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/inference-engine-lib.slnx",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "--no-incremental"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "build-release-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/inference-engine-lib.slnx",
+                "-c",
+                "Release",
+                "--runtime",
+                "linux-x64",
+                "--no-incremental"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            },
+            "group": {
+                "kind": "build"
+            }
+        },
+        {
+            "label": "build-tests-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "--no-incremental"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "build-integration-tests-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "--no-incremental"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "test-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "--no-build"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "test-release-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "-c",
+                "Release",
+                "--runtime",
+                "linux-x64",
+                "--no-build"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            },
+            "group": {
+                "kind": "test"
+            }
+        },
+        {
+            "label": "test-integration-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "--no-build"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "publish-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "publish",
+                "${workspaceFolder}/InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj",
+                "-c",
+                "Debug",
+                "--runtime",
+                "linux-x64",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "watch-debug-linux-x64",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "watch",
+                "run",
+                "--project",
+                "${workspaceFolder}/InferenceEngine.Core.IntegrationTests/InferenceEngine.Core.IntegrationTests.csproj",
+                "--runtime",
+                "linux-x64"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "clean",
+                "${workspaceFolder}/inference-engine-lib.slnx",
+                "-c",
+                "Debug"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "clean-release",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "clean",
+                "${workspaceFolder}/inference-engine-lib.slnx",
+                "-c",
+                "Release"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "validate-all-linux-x64",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "clean-release",
+                "restore",
+                "build-release-linux-x64",
+                "test-release-linux-x64"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "type": "msbuild",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "label": "Build: solution",
+            "detail": "Build the inference-engine-lib.slnx solution (preserved from original config; prefer build-debug-linux-x64 for explicit RID)"
+        }
+    ]
+}

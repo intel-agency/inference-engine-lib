@@ -1,0 +1,102 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "build & launch Examples (Debug, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-debug-linux-x64",
+            "program": "${workspaceFolder}/InferenceEngine.Examples/bin/Debug/net10.0/linux-x64/InferenceEngine.Examples.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": "build & launch Examples (Release, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-release-linux-x64",
+            "program": "${workspaceFolder}/InferenceEngine.Examples/bin/Release/net10.0/linux-x64/InferenceEngine.Examples.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": "run all tests (Debug, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-tests-debug-linux-x64",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "--runtime",
+                "linux-x64",
+                "--no-build"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "run all tests (Release, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-release-linux-x64",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "-c",
+                "Release",
+                "--runtime",
+                "linux-x64",
+                "--no-build"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "debug single test (Debug, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-tests-debug-linux-x64",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/InferenceEngine.Tests/InferenceEngine.Tests.csproj",
+                "--runtime",
+                "linux-x64",
+                "--no-build",
+                "--filter",
+                "FullyQualifiedName~${input:testName}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": ".NET Core Launch (console, IntegrationTests, Debug, linux-x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-integration-tests-debug-linux-x64",
+            "program": "${workspaceFolder}/InferenceEngine.Core.IntegrationTests/bin/Debug/net10.0/linux-x64/InferenceEngine.Core.IntegrationTests.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/InferenceEngine.Core.IntegrationTests",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "testName",
+            "type": "promptString",
+            "description": "Test name pattern (e.g., FaceDetectionEngineTests.PredictAsync_WithBusImage)"
+        }
+    ]
+}
