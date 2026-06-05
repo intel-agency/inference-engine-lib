@@ -336,21 +336,22 @@ namespace InferenceEngine.Core
         /// <summary>
         /// Determines whether an exception thrown during ONNX session initialization represents a
         /// recoverable native library loading failure (for example, a missing or unloadable
-        /// <c>libonnxruntime.so</c>). When GPU acceleration was requested, such failures should
-        /// trigger a CPU fallback; otherwise the exception should propagate so the outer
-        /// <c>LogError</c> handler can report it.
+        /// <c>libonnxruntime.so</c>, or a corrupted / wrong-architecture native binary). When
+        /// GPU acceleration was requested, such failures should trigger a CPU fallback;
+        /// otherwise the exception should propagate so the outer <c>LogError</c> handler can
+        /// report it.
         /// </summary>
         /// <param name="ex">The exception thrown while building or opening the ONNX session.</param>
         /// <returns>
         /// <see langword="true"/> if <paramref name="ex"/> is or wraps an
-        /// <see cref="OnnxRuntimeException"/> or <see cref="DllNotFoundException"/>;
-        /// otherwise, <see langword="false"/>.
+        /// <see cref="OnnxRuntimeException"/>, <see cref="DllNotFoundException"/>, or
+        /// <see cref="BadImageFormatException"/>; otherwise, <see langword="false"/>.
         /// </returns>
         private static bool IsRecoverableNativeFailure(Exception ex)
         {
-            if (ex is OnnxRuntimeException || ex is DllNotFoundException) return true;
+            if (ex is OnnxRuntimeException or DllNotFoundException or BadImageFormatException) return true;
             if (ex is TypeInitializationException tiex)
-                return tiex.InnerException is OnnxRuntimeException or DllNotFoundException;
+                return tiex.InnerException is OnnxRuntimeException or DllNotFoundException or BadImageFormatException;
             return false;
         }
 
@@ -390,15 +391,15 @@ namespace InferenceEngine.Core
                 }
                 return true;
             }
-            catch (DllNotFoundException ex)
+            catch (Exception ex) when (ex is DllNotFoundException or TypeInitializationException or InvalidOperationException or BadImageFormatException)
             {
-                _logger.LogDebug(ex, "ROCm HSA runtime library (libhsa-runtime64.so) not resolvable. ROCm provider unavailable.");
-                return false;
-            }
-            catch (Exception ex) when (ex is DllNotFoundException or TypeInitializationException or InvalidOperationException)
-            {
-                // Belt-and-suspenders: some platforms wrap DllNotFoundException in TypeInitializationException
-                // or surface it as InvalidOperationException from NativeLibrary.Load.
+                // This is a probe method intended for silent fallback. NativeLibrary.Load can
+                // surface a variety of non-fatal load failures that should all be treated as
+                // "ROCm not usable on this host":
+                //   - DllNotFoundException: the .so is not present on the host.
+                //   - TypeInitializationException: some platforms wrap the inner load exception.
+                //   - InvalidOperationException: surface by NativeLibrary.Load in some paths.
+                //   - BadImageFormatException: the .so is corrupted or has a mismatched architecture.
                 _logger.LogDebug(ex, "ROCm HSA runtime probe failed. ROCm provider unavailable.");
                 return false;
             }
