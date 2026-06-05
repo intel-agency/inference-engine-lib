@@ -75,7 +75,20 @@
        after Build (see RestoreUpstreamCpuLibOnLinux target) so the .so is safe to load on
        hosts without ROCm drivers. At runtime, BaseInferenceEngine.ConfiguredSessionOptions
        checks /dev/kfd and the HSA runtime before attempting to append the ROCm EP; on
-       non-ROCm hosts the engine falls back to CPU automatically. -->
+       non-ROCm hosts the engine falls back to CPU automatically.
+
+       NOTE on version mismatch: the InferenceEngine.ROCm.Runtime.linux-x64 package is
+       currently pinned to 1.19.2-dev.28 — the only version published to the
+       intel-agency GitHub NuGet feed. The base Microsoft.ML.OnnxRuntime package is at
+       1.24.1. ABI coupling between the ROCm provider .so and the core libonnxruntime.so
+       is a known concern. Today the runtime handles this defensively:
+         - On non-ROCm hosts, the upstream CPU libonnxruntime.so is restored over the
+           ROCm-enabled copy, so the mismatched ROCm provider .so is never loaded.
+         - On ROCm hosts, the ROCm EP append is wrapped in try/catch (Exception) inside
+           ConfiguredSessionOptions, and any failure (including symbol-resolution or
+           ABI errors) triggers CPU fallback.
+       Tracking item: align both versions once a 1.24.x-compatible
+       InferenceEngine.ROCm.Runtime.linux-x64 package is published. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
     <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.19.2-dev.28" />
   </ItemGroup>
