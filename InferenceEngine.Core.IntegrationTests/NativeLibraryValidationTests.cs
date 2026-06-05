@@ -82,7 +82,11 @@ namespace InferenceEngine.Core.IntegrationTests
             };
             using var proc = Process.Start(psi)!;
             var stdout = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit();
+            if (!proc.WaitForExit(10_000))
+            {
+                try { proc.Kill(); } catch { /* best-effort cleanup */ }
+                throw new TimeoutException($"Command '{executable} {args}' timed out after 10s.");
+            }
             return stdout + proc.StandardError.ReadToEnd();
         }
 
