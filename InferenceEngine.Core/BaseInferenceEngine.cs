@@ -29,6 +29,13 @@ namespace InferenceEngine.Core
         public IReadOnlyDictionary<string, NodeMetadata>? OutputMetadata { get; private set; }
         public string? PrimaryInputName { get; private set; }
 
+        /// <summary>
+        /// Returns <see langword="true"/> when the ONNX session was successfully initialized
+        /// with the ROCm execution provider. <see langword="false"/> on non-Linux-x64 platforms,
+        /// when ROCm initialization failed, or when CPU fallback was used.
+        /// </summary>
+        public bool IsRocmSessionActive { get; private set; }
+
         // --- Model Specification (to be implemented by derived classes) ---
 
         /// <summary>
@@ -149,10 +156,26 @@ namespace InferenceEngine.Core
             {
                 try
                 {
-                    var sessionOptions = ConfiguredSessionOptions();
-                    
-                    // Create the session
-                    _session = new InferenceSession(modelPath, sessionOptions);
+                    // Combined try: ConfiguredSessionOptions and new InferenceSession share one try and one catch.
+                    // A TypeInitializationException thrown while loading the base libonnxruntime (for example
+                    // a missing libonnxruntime.so) is unwrapped via IsRecoverableNativeFailure so the CPU
+                    // fallback path is reached instead of bubbling out as an opaque load failure.
+                    try
+                    {
+                        using var sessionOptions = ConfiguredSessionOptions(out var rocmProviderAppended);
+                        // Create the session
+                        _session = new InferenceSession(modelPath, sessionOptions);
+                        IsRocmSessionActive = rocmProviderAppended;
+                    }
+                    catch (Exception ex) when (
+                        _options.UseGpuAcceleration &&
+                        IsRecoverableNativeFailure(ex))
+                    {
+                        _logger.LogWarning(ex, "Native session initialization failed. Falling back to CPU.");
+                        using var cpuSessionOptions = CreateCpuOnlySessionOptions();
+                        _session = new InferenceSession(modelPath, cpuSessionOptions);
+                    }
+
                     _runOptions = new RunOptions();
 
                     // Populate Metadata properties
@@ -211,8 +234,9 @@ namespace InferenceEngine.Core
 
         // --- Internal/Protected Helpers ---
 
-        private SessionOptions ConfiguredSessionOptions()
+        private SessionOptions ConfiguredSessionOptions(out bool rocmProviderAppended)
         {
+            rocmProviderAppended = false;
             var options = new SessionOptions();
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 
@@ -251,14 +275,134 @@ namespace InferenceEngine.Core
                     options.AppendExecutionProvider_CPU();
                 }
             }
-            // 3. Linux/Other Strategy (CPU Fallback)
+            // 3. Linux Strategy (ROCm on x64, CPU on ARM64)
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+            {
+                if (!IsRocmRuntimeUsable())
+                {
+                    _logger.LogInformation("Platform detected: Linux x64. ROCm runtime not available on this host — using CPU provider.");
+                    options.AppendExecutionProvider_CPU();
+                    return options;
+                }
+
+                _logger.LogInformation("Platform detected: Linux x64. ROCm runtime detected. Attempting ROCm provider...");
+
+                try
+                {
+                    using var rocmOptions = new OrtROCMProviderOptions();
+                    rocmOptions.UpdateOptions(new Dictionary<string, string>
+                    {
+                        ["device_id"] = _options.DeviceId.ToString(),
+                        ["miopen_conv_exhaustive_search"] = "1",
+                        ["arena_extend_strategy"] = "kSameAsRequested",
+                    });
+
+                    options.AppendExecutionProvider_ROCm(rocmOptions);
+                    rocmProviderAppended = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "ROCm provider failed to load. Falling back to CPU.");
+                    options.AppendExecutionProvider_CPU();
+                }
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+            {
+                _logger.LogInformation("Platform detected: Linux ARM64. Using CPU provider.");
+                options.AppendExecutionProvider_CPU();
+            }
+            // 4. Other Platform Strategy (CPU Fallback)
             else
             {
-                _logger.LogInformation("Platform detected: Linux/Other. Using default CPU provider.");
+                _logger.LogInformation("Platform detected: Other. Using default CPU provider.");
                 options.AppendExecutionProvider_CPU();
             }
 
             return options;
+        }
+
+        private static SessionOptions CreateCpuOnlySessionOptions()
+        {
+            var options = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            };
+            options.AppendExecutionProvider_CPU();
+            return options;
+        }
+
+        /// <summary>
+        /// Determines whether an exception thrown during ONNX session initialization represents a
+        /// recoverable native library loading failure (for example, a missing or unloadable
+        /// <c>libonnxruntime.so</c>, or a corrupted / wrong-architecture native binary). When
+        /// GPU acceleration was requested, such failures should trigger a CPU fallback;
+        /// otherwise the exception should propagate so the outer <c>LogError</c> handler can
+        /// report it.
+        /// </summary>
+        /// <param name="ex">The exception thrown while building or opening the ONNX session.</param>
+        /// <returns>
+        /// <see langword="true"/> if <paramref name="ex"/> is or wraps an
+        /// <see cref="OnnxRuntimeException"/>, <see cref="DllNotFoundException"/>, or
+        /// <see cref="BadImageFormatException"/>; otherwise, <see langword="false"/>.
+        /// </returns>
+        private static bool IsRecoverableNativeFailure(Exception ex)
+        {
+            if (ex is OnnxRuntimeException or DllNotFoundException or BadImageFormatException) return true;
+            if (ex is TypeInitializationException tiex)
+                return tiex.InnerException is OnnxRuntimeException or DllNotFoundException or BadImageFormatException;
+            return false;
+        }
+
+        /// <summary>
+        /// Determines whether the ROCm execution provider is usable on the current host.
+        /// On Linux, checks that the kernel fusion driver (<c>/dev/kfd</c>) is exposed AND that
+        /// the ROCm HSA runtime library (<c>libhsa-runtime64.so</c>) can be resolved via dlopen.
+        /// On other platforms, returns <see langword="false"/>.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> when both the ROCm kernel driver and HSA runtime are reachable;
+        /// <see langword="false"/> otherwise. The reason for a <see langword="false"/> result is
+        /// logged at <c>Debug</c> level.
+        /// </returns>
+        private bool IsRocmRuntimeUsable()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                return false;
+            }
+
+            if (!File.Exists("/dev/kfd"))
+            {
+                _logger.LogDebug("ROCm kernel fusion driver not present (/dev/kfd missing). ROCm provider unavailable.");
+                return false;
+            }
+
+            try
+            {
+                var handle = NativeLibrary.Load(
+                    "libhsa-runtime64.so",
+                    typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+                if (handle != IntPtr.Zero)
+                {
+                    NativeLibrary.Free(handle);
+                }
+                return true;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or TypeInitializationException or InvalidOperationException or BadImageFormatException)
+            {
+                // This is a probe method intended for silent fallback. NativeLibrary.Load can
+                // surface a variety of non-fatal load failures that should all be treated as
+                // "ROCm not usable on this host":
+                //   - DllNotFoundException: the .so is not present on the host.
+                //   - TypeInitializationException: some platforms wrap the inner load exception.
+                //   - InvalidOperationException: surface by NativeLibrary.Load in some paths.
+                //   - BadImageFormatException: the .so is corrupted or has a mismatched architecture.
+                _logger.LogDebug(ex, "ROCm HSA runtime probe failed. ROCm provider unavailable.");
+                return false;
+            }
         }
 
         /// <summary>

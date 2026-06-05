@@ -10,6 +10,18 @@
     <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <!-- Set RuntimeIdentifier to the host's RID for both Debug and Release builds.
+       This makes a plain `dotnet build` invocation produce RID-specific output, so
+       the post-Build MSBuild targets (symlink creation, libonnxruntime.so restore,
+       etc.) fire automatically on any host. An explicit runtime-id flag on the
+       command line still works as a cross-compile override. The property function
+       $[System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier is
+       evaluated at MSBuild evaluation time and returns e.g. linux-x64, win-x64,
+       osx-arm64 depending on the host. -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' OR '$(Configuration)' == 'Release'">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
@@ -28,12 +40,72 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- Ensure native libraries are copied to output directory -->
-  <Target Name="CopyNativeLibraries" AfterTargets="Build">
-    <ItemGroup>
-      <NativeLibs Include="$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/runtimes/**/*" />
-    </ItemGroup>
-    <Copy SourceFiles="%(NativeLibs.FullPath)" DestinationFolder="$(TargetDir)runtimes/%(RecursiveDir)" SkipUnchangedFiles="true" />
+  <!-- The upstream Microsoft.ML.OnnxRuntime 1.24.1 and Microsoft.ML.OnnxRuntime.Extensions 0.14.0
+       props unconditionally add <None Include="...\runtimes\win-x64\native\onnxruntime.dll"> (and
+       ortextensions.dll, onnxruntime_providers_shared.dll) with <CopyToOutputDirectory>PreserveNewest</>.
+       The Include attribute expands to a full NuGet-cache path, which is the item's Identity. On a
+       non-Windows RID build, dlopen would find these Windows PE32+ files at the output root first and
+       reject them with "invalid ELF header" before falling through to libonnxruntime.so (different
+       name, so runtimes-subdir probing does not rescue). The MSBuild-correct way to neutralize this is
+       to physically remove the files from the output after Build. The matching Linux .so files are
+       already in place via RID-based resolution. -->
+  <Target Name="RemoveWindowsNativeLibsOnNonWindows"
+          AfterTargets="Build"
+          Condition="'$(RuntimeIdentifier)' != '' AND !$(RuntimeIdentifier.StartsWith('win'))">
+    <Delete Files="$(OutDir)onnxruntime.dll"
+            ContinueOnError="true" />
+    <Delete Files="$(OutDir)ortextensions.dll"
+            ContinueOnError="true" />
+    <Delete Files="$(OutDir)onnxruntime_providers_shared.dll"
+            ContinueOnError="true" />
   </Target>
 
+  <!-- The Microsoft.ML.OnnxRuntime 1.24.1 package's P/Invoke declarations on Linux use
+       a Windows-style DllImport name ("onnxruntime.dll"). .NET 10's P/Invoke search
+       algorithm probes for libonnxruntime.dll.so, onnxruntime.dll.so, libonnxruntime.dll,
+       and onnxruntime.dll in the output dir and the system path — but NOT for
+       libonnxruntime.so (the actual filename the package ships). To make the Linux
+       native library findable, create symlinks from the searched names to the
+       libonnxruntime.so / libortextensions.so / libonnxruntime_providers_*.so files
+       that RID-based resolution already placed in the output. macOS uses .dylib files
+       and does not need these Linux-specific symlinks, so the target is gated on the
+       Linux RID only. The symlinks are tiny and removed by `dotnet clean`. -->
+  <Target Name="SymlinkLinuxNativeLibsForPInvoke"
+          AfterTargets="Build"
+          Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('linux'))">
+    <Exec Command="ln -sf libonnxruntime.so            $(OutDir)libonnxruntime.dll.so"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libortextensions.so          $(OutDir)libortextensions.dll.so"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)libonnxruntime_providers_shared.dll.so"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)libonnxruntime_providers_rocm.dll.so"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime.so            $(OutDir)onnxruntime.dll"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libortextensions.so          $(OutDir)ortextensions.dll"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)onnxruntime_providers_shared.dll"
+          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)onnxruntime_providers_rocm.dll"
+          ContinueOnError="true" />
+  </Target>
+
+  <!-- Mirror the Core csproj target: the InferenceEngine.ROCm.Runtime.linux-x64 package
+       (transitively pulled in by the Core project reference) ships a ROCm-enabled
+       libonnxruntime.so that SIGSEGVs on non-ROCm hosts. Restore the upstream
+       Microsoft.ML.OnnxRuntime package's CPU-only libonnxruntime.so over it so the test
+       build's output is loadable on Intel-only runners. The runtime check in
+       BaseInferenceEngine still decides whether to dlopen the ROCm provider .so. -->
+  <Target Name="RestoreUpstreamCpuLibOnLinux"
+          AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
+          Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
+    <PropertyGroup>
+      <_UpstreamCpuLib>$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/runtimes/linux-x64/native/libonnxruntime.so</_UpstreamCpuLib>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_UpstreamCpuLib)"
+          DestinationFiles="$(OutDir)libonnxruntime.so"
+          SkipUnchangedFiles="false"
+          ContinueOnError="true" />
+  </Target>
 </Project>
