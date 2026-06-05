@@ -156,17 +156,22 @@ namespace InferenceEngine.Core
             {
                 try
                 {
-                    using var sessionOptions = ConfiguredSessionOptions(out var rocmProviderAppended);
-
+                    // Combined try: ConfiguredSessionOptions and new InferenceSession share one try and one catch.
+                    // A TypeInitializationException thrown while loading the base libonnxruntime (for example
+                    // a missing libonnxruntime.so) is unwrapped via IsRecoverableNativeFailure so the CPU
+                    // fallback path is reached instead of bubbling out as an opaque load failure.
                     try
                     {
+                        using var sessionOptions = ConfiguredSessionOptions(out var rocmProviderAppended);
                         // Create the session
                         _session = new InferenceSession(modelPath, sessionOptions);
                         IsRocmSessionActive = rocmProviderAppended;
                     }
-                    catch (Exception ex) when (rocmProviderAppended && (ex is OnnxRuntimeException || ex is DllNotFoundException))
+                    catch (Exception ex) when (
+                        _options.UseGpuAcceleration &&
+                        IsRecoverableNativeFailure(ex))
                     {
-                        _logger.LogWarning(ex, "ROCm session initialization failed after provider append. Falling back to CPU.");
+                        _logger.LogWarning(ex, "Native session initialization failed. Falling back to CPU.");
                         using var cpuSessionOptions = CreateCpuOnlySessionOptions();
                         _session = new InferenceSession(modelPath, cpuSessionOptions);
                     }
@@ -274,7 +279,14 @@ namespace InferenceEngine.Core
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
                 && RuntimeInformation.ProcessArchitecture == Architecture.X64)
             {
-                _logger.LogInformation("Platform detected: Linux x64. Attempting ROCm...");
+                if (!IsRocmRuntimeUsable())
+                {
+                    _logger.LogInformation("Platform detected: Linux x64. ROCm runtime not available on this host — using CPU provider.");
+                    options.AppendExecutionProvider_CPU();
+                    return options;
+                }
+
+                _logger.LogInformation("Platform detected: Linux x64. ROCm runtime detected. Attempting ROCm provider...");
 
                 try
                 {
@@ -319,6 +331,77 @@ namespace InferenceEngine.Core
             };
             options.AppendExecutionProvider_CPU();
             return options;
+        }
+
+        /// <summary>
+        /// Determines whether an exception thrown during ONNX session initialization represents a
+        /// recoverable native library loading failure (for example, a missing or unloadable
+        /// <c>libonnxruntime.so</c>). When GPU acceleration was requested, such failures should
+        /// trigger a CPU fallback; otherwise the exception should propagate so the outer
+        /// <c>LogError</c> handler can report it.
+        /// </summary>
+        /// <param name="ex">The exception thrown while building or opening the ONNX session.</param>
+        /// <returns>
+        /// <see langword="true"/> if <paramref name="ex"/> is or wraps an
+        /// <see cref="OnnxRuntimeException"/> or <see cref="DllNotFoundException"/>;
+        /// otherwise, <see langword="false"/>.
+        /// </returns>
+        private static bool IsRecoverableNativeFailure(Exception ex)
+        {
+            if (ex is OnnxRuntimeException || ex is DllNotFoundException) return true;
+            if (ex is TypeInitializationException tiex)
+                return tiex.InnerException is OnnxRuntimeException or DllNotFoundException;
+            return false;
+        }
+
+        /// <summary>
+        /// Determines whether the ROCm execution provider is usable on the current host.
+        /// On Linux, checks that the kernel fusion driver (<c>/dev/kfd</c>) is exposed AND that
+        /// the ROCm HSA runtime library (<c>libhsa-runtime64.so</c>) can be resolved via dlopen.
+        /// On other platforms, returns <see langword="false"/>.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> when both the ROCm kernel driver and HSA runtime are reachable;
+        /// <see langword="false"/> otherwise. The reason for a <see langword="false"/> result is
+        /// logged at <c>Debug</c> level.
+        /// </returns>
+        private bool IsRocmRuntimeUsable()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                return false;
+            }
+
+            if (!File.Exists("/dev/kfd"))
+            {
+                _logger.LogDebug("ROCm kernel fusion driver not present (/dev/kfd missing). ROCm provider unavailable.");
+                return false;
+            }
+
+            try
+            {
+                var handle = NativeLibrary.Load(
+                    "libhsa-runtime64.so",
+                    typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+                if (handle != IntPtr.Zero)
+                {
+                    NativeLibrary.Free(handle);
+                }
+                return true;
+            }
+            catch (DllNotFoundException ex)
+            {
+                _logger.LogDebug(ex, "ROCm HSA runtime library (libhsa-runtime64.so) not resolvable. ROCm provider unavailable.");
+                return false;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or TypeInitializationException or InvalidOperationException)
+            {
+                // Belt-and-suspenders: some platforms wrap DllNotFoundException in TypeInitializationException
+                // or surface it as InvalidOperationException from NativeLibrary.Load.
+                _logger.LogDebug(ex, "ROCm HSA runtime probe failed. ROCm provider unavailable.");
+                return false;
+            }
         }
 
         /// <summary>

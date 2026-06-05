@@ -37,6 +37,7 @@ public sealed class RocmProviderTests : IDisposable
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
+        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm runtime not usable on this host (no /dev/kfd or libhsa-runtime64.so unreachable).");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -123,6 +124,7 @@ public sealed class RocmProviderTests : IDisposable
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
+        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm runtime not usable on this host (no /dev/kfd or libhsa-runtime64.so unreachable).");
 
         var engine = CreateEngine(new InferenceEngineOptions
         {
@@ -200,6 +202,27 @@ public sealed class RocmProviderTests : IDisposable
             || ex is TypeInitializationException
             || (ex is TargetInvocationException { InnerException: Exception inner }
                 && (inner is DllNotFoundException or TypeInitializationException)))
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when both the ROCm kernel driver (/dev/kfd)
+    /// and the ROCm HSA runtime library (libhsa-runtime64.so) are reachable on the
+    /// current host — i.e., the test environment has real ROCm capability.
+    /// </summary>
+    private static bool IsRocmRuntimeUsableOnHost()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
+        if (!File.Exists("/dev/kfd")) return false;
+        try
+        {
+            var handle = NativeLibrary.Load("libhsa-runtime64.so", Assembly.GetExecutingAssembly(), System.Runtime.InteropServices.DllImportSearchPath.UseDllDirectoryForDependencies | System.Runtime.InteropServices.DllImportSearchPath.System32);
+            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
+            return true;
+        }
+        catch
         {
             return false;
         }
