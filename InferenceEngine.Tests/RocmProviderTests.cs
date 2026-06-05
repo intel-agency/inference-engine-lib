@@ -182,7 +182,16 @@ public sealed class RocmProviderTests : IDisposable
 
         if (Directory.Exists(_testDir))
         {
-            Directory.Delete(_testDir, true);
+            try
+            {
+                Directory.Delete(_testDir, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // best-effort cleanup — files may still be locked by the ONNX Runtime
+                // session or another process. Suppress to avoid disrupting the test
+                // runner's Dispose chain (CA1065).
+            }
         }
     }
 
