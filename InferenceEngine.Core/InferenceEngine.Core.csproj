@@ -109,12 +109,12 @@
        libonnxruntime.so (the actual filename the package ships). To make the Linux
        native library findable, create symlinks from the searched names to the
        libonnxruntime.so / libortextensions.so / libonnxruntime_providers_*.so files
-       that RID-based resolution already placed in the output. ln -sf is a no-op on
-       non-Windows hosts (the target is gated on non-Windows RID). The symlinks are
-       tiny and removed by `dotnet clean`. -->
+       that RID-based resolution already placed in the output. macOS uses .dylib files
+       and does not need these Linux-specific symlinks, so the target is gated on the
+       Linux RID only. The symlinks are tiny and removed by `dotnet clean`. -->
   <Target Name="SymlinkLinuxNativeLibsForPInvoke"
           AfterTargets="Build"
-          Condition="'$(RuntimeIdentifier)' != '' AND !$(RuntimeIdentifier.StartsWith('win'))">
+          Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('linux'))">
     <Exec Command="ln -sf libonnxruntime.so            $(OutDir)libonnxruntime.dll.so"
           ContinueOnError="true" />
     <Exec Command="ln -sf libortextensions.so          $(OutDir)libortextensions.dll.so"
