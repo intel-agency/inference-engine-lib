@@ -58,6 +58,11 @@ jobs:
           name: build-output-ubuntu-latest
           path: .
 
+      - name: Restore dependencies
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet restore
+
       - name: Compute Package Version
         id: version
         run: |
