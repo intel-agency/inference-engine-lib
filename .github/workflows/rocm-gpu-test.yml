@@ -27,6 +27,16 @@ jobs:
   rocm-gpu-test:
     name: ROCm GPU Inference Test (AMD)
     runs-on: [self-hosted, linux, x64, amd-gpu]
+    # Auto-skip until a self-hosted AMD-GPU runner is registered. The
+    # runner has not been implemented yet, so without this guard the job
+    # queues indefinitely waiting for a runner that never picks it up
+    # (GitHub has no native "skip if no runner", and timeout-minutes does
+    # not count time spent waiting for a runner to be assigned). To enable
+    # this job once the runner described above is online, set the repository
+    # variable ROCM_RUNNER_ENABLED=true under Settings → Secrets and
+    # variables → Actions → Variables.
+    if: vars.ROCM_RUNNER_ENABLED == 'true'
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
