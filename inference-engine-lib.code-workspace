@@ -2,9 +2,6 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"path": "../../nam20485/InferenceApp"
 		}
 	],
 	"settings": {
@@ -14,6 +11,7 @@
 			"./InferenceEngine.Tests/InferenceEngine.Tests.csproj"
 		],
 		"dotnet.automaticallySyncWithActiveItem": true,
-		"dotnet.defaultSolution": "inference-engine-lib.slnx"
+		"dotnet.defaultSolution": "inference-engine-lib.slnx",
+		"powershell.cwd": "inference-engine-lib"
 	}
 }
