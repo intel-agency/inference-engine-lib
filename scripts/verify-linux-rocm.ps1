@@ -7,8 +7,8 @@ lspci | grep -i amd
 lsmod | grep amdgpu
 
 # DRI render nodes at /dev/dri/renderD128 (and friends).
-ls -al /dev/dri/renderD128
+& /bin/ls -al /dev/dri/renderD128
 
 # User has access to /dev/kfd and /dev/dri/* — typically requires membership in the video and render groups, or running as root.
 # Wrong permissions are the #1 "ROCm installed but doesn't work" cause.
-ls -al /dev/kfd /dev/dri/*
+& /bin/ls -al /dev/kfd /dev/dri/*
