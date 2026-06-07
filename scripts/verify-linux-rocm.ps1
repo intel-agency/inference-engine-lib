@@ -1,4 +1,4 @@
-#!/bin/env powershell
+#!/usr/bin/env pwsh
 
 # required AMD GPU ( Supported AMD GPU (RDNA 2/3, CDNA, or GCN 5th-gen+; many older or low-end consumer GPUs are not on the ROCm support matrix).
 lspci | grep -i amd
