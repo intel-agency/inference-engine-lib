@@ -42,12 +42,19 @@
     <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' OR '$(Configuration)' == 'Release'">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</RuntimeIdentifier>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <DebugType>embedded</DebugType>
+    <DebugType>portable</DebugType>
     <WarningLevel>9999</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DebugType>embedded</DebugType>
+    <DebugType>portable</DebugType>
     <WarningLevel>9999</WarningLevel>
+  </PropertyGroup>
+  <!-- SourceLink + symbol package: produce a portable .pdb and a separate .snupkg
+       so the main .nupkg stays lean and consumers can source-step via the NuGet.org
+       symbol server. EmbedUntrackedSources ensures Deterministic builds for SourceLink. -->
+  <PropertyGroup>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
   
   <ItemGroup>
@@ -65,6 +72,8 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <!-- SourceLink: enables source stepping from the NuGet.org symbol server -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
   <!-- DirectML EP is Windows-RID only — gated on RuntimeIdentifier so cross-RID builds never resolve DirectML assets. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
