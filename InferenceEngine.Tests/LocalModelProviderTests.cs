@@ -20,7 +20,14 @@ public class LocalModelProviderTests : IDisposable
     {
         if (Directory.Exists(_testDir))
         {
-            Directory.Delete(_testDir, true);
+            try
+            {
+                Directory.Delete(_testDir, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Suppress filesystem exceptions during cleanup to prevent escaping from Dispose (CA1065)
+            }
         }
     }
 

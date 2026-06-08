@@ -69,7 +69,7 @@
   </ItemGroup>
 
   <ItemGroup><!-- Base Runtime (CPU) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" GeneratePathProperty="true" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <!-- SourceLink: enables source stepping from the NuGet.org symbol server -->
@@ -169,7 +169,7 @@
           AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
           Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
     <PropertyGroup>
-      <_UpstreamCpuLib>$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/runtimes/linux-x64/native/libonnxruntime.so</_UpstreamCpuLib>
+      <_UpstreamCpuLib>$(PkgMicrosoft_ML_OnnxRuntime)/runtimes/linux-x64/native/libonnxruntime.so</_UpstreamCpuLib>
     </PropertyGroup>
     <Copy SourceFiles="$(_UpstreamCpuLib)"
           DestinationFiles="$(OutDir)libonnxruntime.so"
