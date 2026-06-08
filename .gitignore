@@ -2,9 +2,8 @@
 bin/
 obj/
 
-# Visual Studio / VS Code
+# Visual Studio
 .vs/
-.vscode/
 
 # User-specific files
 *.user
@@ -35,6 +34,8 @@ coverage.*
 *.snupkg
 .nuget/
 packages/
+# Local nuget.config overrides with real credentials (use nuget.config.local for personal tokens)
+nuget.config.local
 
 # Rider / JetBrains
 .idea/
@@ -50,9 +51,16 @@ Thumbs.db
 *.swp
 *.orig
 
+# ROCm native build artifacts
+build/
+
+# Generated runtime native assets (populated by CI)
+InferenceEngine.Core/runtimes/
+
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
 
 # OpenMemory - IDE/Assistant specific rules
 .cursor/rules/openmemory.mdc
+*.lscache

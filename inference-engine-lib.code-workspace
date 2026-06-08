@@ -9,6 +9,8 @@
 			"./inference-engine-lib.slnx",
 			"./InferenceEngine.Core/InferenceEngine.Core.csproj",
 			"./InferenceEngine.Tests/InferenceEngine.Tests.csproj"
-		]
+		],
+		"dotnet.automaticallySyncWithActiveItem": true,
+		"dotnet.defaultSolution": "inference-engine-lib.slnx"		
 	}
 }

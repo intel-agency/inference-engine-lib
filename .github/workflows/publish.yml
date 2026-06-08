@@ -2,7 +2,11 @@ name: Publish NuGet
 
 on:
   push:
-    branches: [release]
+    branches: [development, staging, release]
+    paths:
+      - 'InferenceEngine.Core/**'
+      - 'InferenceEngine.Examples/**'
+      - '.github/workflows/publish.yml'
   workflow_dispatch:
 
 env:
@@ -22,12 +26,13 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         
       - name: Build and Test
         uses: ./.github/actions/build-and-test
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+          nuget-token: ${{ secrets.GITHUB_TOKEN }}
           upload-artifacts: 'true'
           artifact-retention-days: '30'
           artifact-name: build-output-${{ matrix.os }}
@@ -35,39 +40,52 @@ jobs:
   pack:
     name: Pack NuGet
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: [build-and-test]
     if: success()
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: build-output-ubuntu-latest
           path: .
-          
       - name: Restore dependencies
-        run: dotnet restore InferenceEngine.Core/InferenceEngine.Core.csproj
-        
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet restore
+
+      - name: Compute Package Version
+        id: version
+        run: |
+          PREFIX="${{ vars.VERSION_PREFIX }}"
+          RUN="${{ github.run_number }}"
+          case "${{ github.ref_name }}" in
+            development) VERSION="${PREFIX}-dev.${RUN}" ;;
+            staging)     VERSION="${PREFIX}-rc.${RUN}" ;;
+            release)     VERSION="${PREFIX}.${RUN}" ;;
+            *)           VERSION="${PREFIX}-local.${RUN}" ;;
+          esac
+          echo "value=$VERSION" >> $GITHUB_OUTPUT
+          echo "Computed version: $VERSION"
       - name: Pack NuGet Package
         run: |
-          VERSION="${{ vars.VERSION_PREFIX }}.${{ github.run_number }}"
-          echo "Building version: $VERSION"
+          echo "Packing version: ${{ steps.version.outputs.value }}"
           dotnet pack InferenceEngine.Core/InferenceEngine.Core.csproj \
             --configuration Release \
             --no-build \
             --output ./nupkg \
-            -p:Version=$VERSION
+            -p:Version=${{ steps.version.outputs.value }}
         
       - name: Upload NuGet Package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuget-package
           path: |
@@ -78,7 +96,7 @@ jobs:
   publish-github-packages:
     name: Publish to GitHub Packages
     runs-on: ubuntu-latest
-    needs: pack
+    needs: [pack]
     if: success()
     permissions:
       packages: write
@@ -86,12 +104,12 @@ jobs:
       
     steps:
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download NuGet Package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: nuget-package
           path: ./nupkg
@@ -110,25 +128,27 @@ jobs:
           dotnet nuget push "./nupkg/*.nupkg" \
             --source github \
             --skip-duplicate
+          dotnet nuget push "./nupkg/*.snupkg" \
+            --source github \
+            --skip-duplicate
 
   publish-nuget-org:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
-    needs: pack
-    if: success()
-    continue-on-error: true
+    needs: [pack]
+    if: success() && github.ref_name == 'release'
     environment:
       name: nuget-org
       url: https://www.nuget.org/packages/InferenceEngine.Core
       
     steps:
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           
       - name: Download NuGet Package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: nuget-package
           path: ./nupkg
@@ -136,6 +156,10 @@ jobs:
       - name: Publish to NuGet.org
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
+            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          dotnet nuget push "./nupkg/*.snupkg" \
             --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate

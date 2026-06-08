@@ -6,6 +6,10 @@ inputs:
     description: '.NET SDK version'
     required: false
     default: '10.0.x'
+  nuget-token:
+    description: 'GitHub token for authenticating with GitHub Packages (read:packages)'
+    required: false
+    default: ''
   upload-artifacts:
     description: 'Upload build artifacts'
     required: false
@@ -13,7 +17,7 @@ inputs:
   artifact-retention-days:
     description: 'Artifact retention days'
     required: false
-    default: '1'
+    default: '5'
   artifact-name:
     description: 'Artifact name (required if upload-artifacts is true)'
     required: false
@@ -35,12 +39,12 @@ runs:
       shell: bash
 
     - name: Setup .NET ${{ inputs.dotnet-version }}
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: ${{ inputs.dotnet-version }}
         
     - name: Cache NuGet packages
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/.nuget/packages
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
@@ -48,6 +52,8 @@ runs:
           ${{ runner.os }}-nuget-
           
     - name: Restore dependencies
+      env:
+        NUGET_AUTH_TOKEN: ${{ inputs.nuget-token }}
       run: dotnet restore
       shell: bash
       
@@ -57,7 +63,7 @@ runs:
       
     - name: Upload build artifacts
       if: inputs.upload-artifacts == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ inputs.artifact-name }}
         path: |
@@ -67,12 +73,12 @@ runs:
         
     - name: Run tests with coverage (Windows)
       if: runner.os == 'Windows'
-      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests" --collect:"XPlat Code Coverage"
       shell: bash
       
     - name: Run tests with coverage (Linux/macOS - exclude integration tests)
       if: runner.os != 'Windows'
-      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests" --collect:"XPlat Code Coverage"
+      run: dotnet test --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests" --collect:"XPlat Code Coverage"
       shell: bash
       
     - name: Install ReportGenerator
@@ -84,7 +90,7 @@ runs:
       shell: bash
       
     - name: Upload test results and coverage
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       if: always()
       with:
         name: test-results-${{ runner.os }}

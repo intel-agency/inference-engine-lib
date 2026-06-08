@@ -1,0 +1,56 @@
+{
+  "models": [
+    {
+      "name": "yolo11n.onnx",
+      "description": "YOLO11 Nano object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11n.onnx"
+      ]
+    },
+    {
+      "name": "yolo11s.onnx",
+      "description": "YOLO11 Small object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11s.onnx"
+      ]
+    },
+    {
+      "name": "yolo11m.onnx",
+      "description": "YOLO11 Medium object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.onnx",
+        "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11m.onnx"
+      ]
+    },
+    {
+      "name": "yolov8n.onnx",
+      "description": "YOLOv8 Nano object detection model",
+      "source": "Ultralytics",
+      "urls": [
+        "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.onnx",
+        "https://huggingface.co/ultralytics/YOLOv8/resolve/main/yolov8n.onnx"
+      ]
+    },
+    {
+      "name": "yolov8n-face.onnx",
+      "description": "YOLOv8 Nano single-class face detection model",
+      "source": "akanametov/yolo-face",
+      "urls": [
+        "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov8n-face.onnx"
+      ]
+    },
+    {
+      "name": "arcface-recognition.onnx",
+      "description": "ArcFace ResNet50 face recognition (insightface buffalo_l w600k_r50), 512-dim embeddings",
+      "source": "InsightFace via HuggingFace mirror richarrrddd/w600k_r50_v1",
+      "urls": [
+        "https://huggingface.co/richarrrddd/w600k_r50_v1/resolve/main/w600k_r50.onnx"
+      ]
+    }
+  ]
+}

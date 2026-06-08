@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <UseRidGraph>true</UseRidGraph>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    
+    <!-- NuGet Package Metadata -->
+    <PackageId>InferenceEngine.Examples</PackageId>
+    <Version>1.0.0-dev</Version>
+    <Authors>intel-agency</Authors>
+    <Company>Artificial Intelligence Agency</Company>
+    <Description>Example inference engines built on top of InferenceEngine.Core, including YOLO-based object detection.</Description>
+    <PackageTags>onnx;onnxruntime;ai;inference;yolo;object-detection;machine-learning</PackageTags>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Set RuntimeIdentifier to the host's RID for both Debug and Release builds.
+       This makes a plain `dotnet build` invocation produce RID-specific output, so
+       the post-Build MSBuild targets (symlink creation, libonnxruntime.so restore,
+       etc.) fire automatically on any host. An explicit runtime-id flag on the
+       command line still works as a cross-compile override. The property function
+       $[System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier is
+       evaluated at MSBuild evaluation time and returns e.g. linux-x64, win-x64,
+       osx-arm64 depending on the host. -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' OR '$(Configuration)' == 'Release'">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InferenceEngine.Core\InferenceEngine.Core.csproj" />
+  </ItemGroup>
+  
+  <!-- SkiaSharp managed library (P/Invoke wrappers). Native binaries are in the per-platform
+       SkiaSharp.NativeAssets.* packages, gated on RuntimeIdentifier so cross-RID builds
+       don't pull the wrong-platform natives. -->
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('linux'))">
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('osx'))">
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
+  </ItemGroup>
+</Project>

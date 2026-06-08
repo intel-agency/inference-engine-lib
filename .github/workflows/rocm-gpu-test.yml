@@ -1,0 +1,95 @@
+name: ROCm GPU Inference Test
+
+# Runs on a self-hosted Linux x64 runner with an AMD GPU.
+# Shared GitHub-hosted runners have no AMD GPU, so this workflow is
+# intentionally separate. Register a runner with labels:
+#   self-hosted, linux, x64, amd-gpu
+#
+# Required runner setup:
+#   - ROCm drivers 5.x+ installed
+#   - /dev/kfd accessible (AMD GPU character device)
+#   - NUGET_AUTH_TOKEN or GITHUB_TOKEN with read:packages scope
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [development, main]
+    paths:
+      - 'InferenceEngine.Core/**'
+      - 'InferenceEngine.Examples/**'
+      - 'InferenceEngine.Tests/**'
+      - '.github/workflows/rocm-gpu-test.yml'
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  rocm-gpu-test:
+    name: ROCm GPU Inference Test (AMD)
+    runs-on: [self-hosted, linux, x64, amd-gpu]
+    # Auto-skip until a self-hosted AMD-GPU runner is registered. The
+    # runner has not been implemented yet, so without this guard the job
+    # queues indefinitely waiting for a runner that never picks it up
+    # (GitHub has no native "skip if no runner", and timeout-minutes does
+    # not count time spent waiting for a runner to be assigned). To enable
+    # this job once the runner described above is online, set the repository
+    # variable ROCM_RUNNER_ENABLED=true under Settings → Secrets and
+    # variables → Actions → Variables.
+    if: vars.ROCM_RUNNER_ENABLED == 'true'
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Verify AMD GPU available
+        run: |
+          if [ ! -e /dev/kfd ]; then
+            echo "::error::/dev/kfd not found - ROCm kernel driver is not loaded or no AMD GPU present."
+            exit 1
+          fi
+          echo "AMD GPU detected (/dev/kfd present)"
+          if command -v rocm-smi &>/dev/null; then rocm-smi; fi
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-rocm-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-rocm-
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet restore
+
+      - name: Build Release (linux-x64)
+        run: dotnet build --configuration Release --runtime linux-x64 --no-restore
+
+      - name: Run ROCm GPU inference tests
+        run: |
+          dotnet test InferenceEngine.Tests/InferenceEngine.Tests.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --no-build \
+            --verbosity normal \
+            --filter "FullyQualifiedName~FaceDetectionEngineTests|FullyQualifiedName~RocmProviderTests" \
+            --collect:"XPlat Code Coverage"
+        env:
+          # Allows FaceDetection model download in tests
+          DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER: 1
+
+      - name: Upload test results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: rocm-gpu-test-results
+          path: InferenceEngine.Tests/TestResults/
+          retention-days: 30
