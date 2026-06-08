@@ -182,6 +182,26 @@ namespace InferenceEngine.Core.ModelProviders
                             "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.onnx",
                             "https://huggingface.co/ultralytics/YOLOv8/resolve/main/yolov8n.onnx"
                         }
+                    },
+                    new ModelRegistryEntry
+                    {
+                        Name = "yolov8n-face.onnx",
+                        Description = "YOLOv8 Nano single-class face detection model",
+                        Source = "akanametov/yolo-face",
+                        Urls = new[]
+                        {
+                            "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov8n-face.onnx"
+                        }
+                    },
+                    new ModelRegistryEntry
+                    {
+                        Name = "arcface-recognition.onnx",
+                        Description = "ArcFace ResNet50 face recognition (insightface buffalo_l w600k_r50), 512-dim embeddings",
+                        Source = "InsightFace via HuggingFace mirror richarrrddd/w600k_r50_v1",
+                        Urls =
+                        [
+                            "https://huggingface.co/richarrrddd/w600k_r50_v1/resolve/main/w600k_r50.onnx"
+                        ]
                     }
                 }
             };

@@ -81,9 +81,14 @@ namespace InferenceEngine.Core.IntegrationTests
                 UseShellExecute = false
             };
             using var proc = Process.Start(psi)!;
-            var stdout = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit();
-            return stdout + proc.StandardError.ReadToEnd();
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(10_000))
+            {
+                try { proc.Kill(); } catch { /* best-effort cleanup */ }
+                throw new TimeoutException($"Command '{executable} {args}' timed out after 10s.");
+            }
+            return stdoutTask.Result + stderrTask.Result;
         }
 
         private static string ModelPath =>

@@ -2,9 +2,8 @@
 bin/
 obj/
 
-# Visual Studio / VS Code
+# Visual Studio
 .vs/
-.vscode/
 
 # User-specific files
 *.user

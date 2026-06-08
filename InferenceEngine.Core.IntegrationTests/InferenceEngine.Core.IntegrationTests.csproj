@@ -10,6 +10,22 @@
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 
+  <!-- Set RuntimeIdentifier to the host's RID for both Debug and Release builds.
+       This makes a plain `dotnet build` invocation produce RID-specific output
+       so the test assembly lands at bin/<Config>/net10.0/<rid>/ (matching the
+       .NET Core Launch (console, IntegrationTests, Debug, linux-x64) launch
+       config's hardcoded program path) and so the .NET runtime's RID-aware
+       native-assets resolver finds the runtimes/linux-x64/native/libonnxruntime.so
+       transitively pulled in by InferenceEngine.Core. An explicit runtime-id
+       flag on the command line still works as a cross-compile override. The
+       property function
+       $[System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
+       is evaluated at MSBuild evaluation time and returns e.g. linux-x64,
+       win-x64, osx-arm64 depending on the host. -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Debug' OR '$(Configuration)' == 'Release'">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
