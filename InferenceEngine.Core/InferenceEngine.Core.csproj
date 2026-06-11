@@ -11,10 +11,10 @@
     <PackageId>InferenceEngine.Core</PackageId>
     <!-- Version is set by CI/CD workflow using VERSION_PREFIX and github.run_number -->
     <!-- Local builds use this default, CI overrides with -p:Version=$VERSION -->
-    <Version>1.0.0-dev</Version>
+    <Version>1.1.0-dev</Version>
     <Authors>intel-agency</Authors>
     <Company>Artificial Intelligence Agency</Company>
-    <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration and a generic interface design for building AI agents.</Description>
+    <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration, automatic fallback, and built-in diagnostics for provider selection.</Description>
     <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents;rocm</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression> AGPL-3.0-or-later</PackageLicenseExpression>
@@ -164,7 +164,10 @@
        ROCm-enabled copy in the output dir. Run AFTER SymlinkLinuxNativeLibsForPInvoke
        so the symlinks (libonnxruntime.dll.so, onnxruntime.dll, etc.) point to the
        restored CPU .so. The provider .so (libonnxruntime_providers_rocm.so) is still
-       copied; the runtime check in BaseInferenceEngine decides whether to dlopen it. -->
+       copied; the runtime check in BaseInferenceEngine decides whether to dlopen it.
+       TODO: Gate on !Exists('/dev/kfd') once a 1.24.x-compatible
+       InferenceEngine.ROCm.Runtime.linux-x64 package is published; the current
+       1.19.2-dev.28 build is ABI-incompatible and SIGSEGVs even on ROCm hosts. -->
   <Target Name="RestoreUpstreamCpuLibOnLinux"
           AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
           Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">

@@ -1,7 +1,10 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using InferenceEngine.Core.Diagnostics;
 using InferenceEngine.Core.ModelProviders;
 
 namespace InferenceEngine.Core
@@ -18,13 +21,11 @@ namespace InferenceEngine.Core
         protected InferenceSession? _session;
         protected RunOptions? _runOptions;
 
-        // Tracks initialization state to prevent usage before loading
         private bool _isLoaded = false;
-
-        // Model Provider (created lazily from model spec)
         private IModelProvider? _modelProvider;
+        private List<ProviderDiagnosticCheck> _pendingChecks = new();
+        private int _nextOrder = 0;
 
-        // Exposed Metadata
         public IReadOnlyDictionary<string, NodeMetadata>? InputMetadata { get; private set; }
         public IReadOnlyDictionary<string, NodeMetadata>? OutputMetadata { get; private set; }
         public string? PrimaryInputName { get; private set; }
@@ -36,7 +37,14 @@ namespace InferenceEngine.Core
         /// </summary>
         public bool IsRocmSessionActive { get; private set; }
 
-        // --- Model Specification (to be implemented by derived classes) ---
+        /// <summary>
+        /// Snapshot of the engine's loaded state. Returns <see cref="InferenceEngineInfo.Empty"/>
+        /// until <see cref="LoadAsync"/> completes. Thread-safe: reference assignment is atomic
+        /// and <see cref="InferenceEngineInfo"/> is an immutable record.
+        /// </summary>
+        public InferenceEngineInfo EngineInfo { get; private set; } = InferenceEngineInfo.Empty;
+
+        // --- Model Specification ---
 
         /// <summary>
         /// The name of the model file (e.g., "yolo11n.onnx").
@@ -46,7 +54,7 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// URLs where the model can be downloaded from, in priority order.
-        /// Derived classes can override to provide custom model sources (e.g., on-prem servers).
+        /// Derived classes can override to provide custom model sources.
         /// If not overridden, the base engine will use the default ModelRegistry to find URLs.
         /// </summary>
         protected virtual string[]? ModelDownloadUrls => null;
@@ -79,18 +87,14 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// Takes raw input and returns ONNX tensors plus an optional context object.
-        /// The context object is passed to PostProcessWithContext, allowing you to share state 
-        /// (like image scaling factors) without overriding the main pipeline.
+        /// The context object is passed to PostProcessWithContext, allowing you to share state
+        /// without overriding the main pipeline.
         /// </summary>
-        /// <param name="input">Raw input data</param>
-        /// <returns>A tuple of NamedOnnxValues (inputs) and a Context object (state)</returns>
         protected abstract (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(TInput input);
 
         /// <summary>
         /// Takes raw ONNX output and the context object from PreProcess, returning the final result.
         /// </summary>
-        /// <param name="output">Disposable collection of output tensors</param>
-        /// <param name="context">The state object returned by PreProcessWithContext</param>
         protected abstract TOutput PostProcessWithContext(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context);
 
         // --- Public API ---
@@ -101,22 +105,19 @@ namespace InferenceEngine.Core
         /// </summary>
         private IModelProvider GetModelProvider()
         {
-            // Caller can always override with explicit provider
             if (_options.ModelProvider is not null)
             {
                 return _options.ModelProvider;
             }
 
-            // Lazily create provider from model spec
             if (_modelProvider is null)
             {
                 var urls = ModelDownloadUrls;
-                
-                // If no URLs specified, try to look up in registry
+
                 if (urls is null || urls.Length == 0)
                 {
                     urls = ModelRegistry.GetModelUrls(ModelName);
-                    
+
                     if (urls is null || urls.Length == 0)
                     {
                         throw new InvalidOperationException(
@@ -126,7 +127,7 @@ namespace InferenceEngine.Core
                             $"2) Add '{ModelName}' to the model registry (models.json), or " +
                             $"3) Set {nameof(InferenceEngineOptions)}.{nameof(InferenceEngineOptions.ModelProvider)} explicitly.");
                     }
-                    
+
                     _logger.LogInformation("Found model '{ModelName}' in registry with {Count} URL(s)", ModelName, urls.Length);
                 }
 
@@ -149,48 +150,95 @@ namespace InferenceEngine.Core
 
             _logger.LogInformation("Initializing Inference Engine...");
 
-            // Acquire model through provider (may download if necessary)
             var modelPath = await GetModelProvider().GetModelPathAsync(CancellationToken.None);
 
             await Task.Run(() =>
             {
                 try
                 {
-                    // Combined try: ConfiguredSessionOptions and new InferenceSession share one try and one catch.
-                    // A TypeInitializationException thrown while loading the base libonnxruntime (for example
-                    // a missing libonnxruntime.so) is unwrapped via IsRecoverableNativeFailure so the CPU
-                    // fallback path is reached instead of bubbling out as an opaque load failure.
+                    _pendingChecks = new List<ProviderDiagnosticCheck>();
+                    _nextOrder = 0;
+
+                    InferenceProvider provider;
+                    InferenceFallbackReason fallback;
+                    int deviceId;
+
+                    SessionOptions? sessionOptions = null;
+
                     try
                     {
-                        using var sessionOptions = ConfiguredSessionOptions(out var rocmProviderAppended);
-                        // Create the session
-                        _session = new InferenceSession(modelPath, sessionOptions);
-                        IsRocmSessionActive = rocmProviderAppended;
+                        sessionOptions = ConfiguredSessionOptions(out provider, out fallback, out deviceId);
+
+                        try
+                        {
+                            _session = new InferenceSession(modelPath, sessionOptions);
+                            AppendSessionCheck(provider, passed: true);
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendSessionCheck(provider, passed: false, ex.Message);
+                            throw;
+                        }
                     }
                     catch (Exception ex) when (
                         _options.UseGpuAcceleration &&
                         IsRecoverableNativeFailure(ex))
                     {
                         _logger.LogWarning(ex, "Native session initialization failed. Falling back to CPU.");
-                        using var cpuSessionOptions = CreateCpuOnlySessionOptions();
-                        _session = new InferenceSession(modelPath, cpuSessionOptions);
+                        _pendingChecks.Add(ProviderDiagnosticCheck.Pass(
+                            "session.native-recoverable",
+                            "IsRecoverableNativeFailure detected, attempting CPU fallback",
+                            "Fallback",
+                            NextOrder()));
+
+                        sessionOptions?.Dispose();
+                        fallback = InferenceFallbackReason.NativeLibraryLoadFailed;
+                        provider = InferenceProvider.Cpu;
+                        deviceId = 0;
+
+                        sessionOptions = CreateCpuOnlySessionOptions();
+                        AppendFallbackChecks(sessionOptions, modelPath);
                     }
 
                     _runOptions = new RunOptions();
 
-                    // Populate Metadata properties
-                    InputMetadata = _session.InputMetadata;
-                    OutputMetadata = _session.OutputMetadata;
-                    PrimaryInputName = InputMetadata.Keys.FirstOrDefault();
+                    InputMetadata = _session!.InputMetadata;
+                    OutputMetadata = _session!.OutputMetadata;
+                    PrimaryInputName = _session!.InputMetadata.Keys.FirstOrDefault();
 
-                    _logger.LogInformation($"Model loaded. Primary Input: {PrimaryInputName}");
+                    IsRocmSessionActive = provider == InferenceProvider.Rocm;
+
+                    var info = new InferenceEngineInfo
+                    {
+                        Provider = provider,
+                        Platform = HostPlatformDetector.Current(),
+                        DeviceId = deviceId,
+                        GpuAccelerationRequested = _options.UseGpuAcceleration,
+                        IsFallback = fallback != InferenceFallbackReason.None,
+                        FallbackReason = fallback,
+                        ProviderOptions = ExtractProviderOptions(provider),
+                        SessionCreatedAt = DateTimeOffset.UtcNow,
+                        Checks = _pendingChecks.ToArray(),
+                    };
+
+#if DEBUG
+                    for (int i = 0; i < info.Checks.Count; i++)
+                        Debug.Assert(info.Checks[i].Order == i, $"Check order mismatch at index {i}: expected {i}, got {info.Checks[i].Order}");
+#endif
+
+                    EngineInfo = info;
+
+                    _logger.LogInformation(
+                        "Model loaded with {Provider} provider (fallback={IsFallback}, reason={FallbackReason}). Primary Input: {PrimaryInputName}",
+                        provider, info.IsFallback, fallback, PrimaryInputName);
                     _isLoaded = true;
 
-                    // Handle First Run Responsibility: Warmup
                     if (_options.WarmupOnLoad)
                     {
                         PerformWarmup();
                     }
+
+                    FireOnSessionInitialized(info);
                 }
                 catch (Exception ex)
                 {
@@ -206,21 +254,15 @@ namespace InferenceEngine.Core
 
             return await Task.Run(() =>
             {
-                // 1. Pre-process (with context)
                 var (inputTensors, context) = PreProcessWithContext(input);
 
                 try
                 {
-                    // 2. Inference
-                    // Using null-forgiving operator (!) as LoadAsync ensures _session is not null here
                     using var outputTensors = _session!.Run(inputTensors, _session.OutputNames, _runOptions);
-
-                    // 3. Post-process (with context)
                     return PostProcessWithContext(outputTensors, context);
                 }
                 finally
                 {
-                    // Dispose input tensors if they wrap native memory
                     foreach(var t in inputTensors)
                     {
                         if (t is IDisposable disposable)
@@ -234,93 +276,211 @@ namespace InferenceEngine.Core
 
         // --- Internal/Protected Helpers ---
 
-        private SessionOptions ConfiguredSessionOptions(out bool rocmProviderAppended)
-        {
-            rocmProviderAppended = false;
-            var options = new SessionOptions();
-            options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+        private int NextOrder() => _nextOrder++;
 
+        private SessionOptions ConfiguredSessionOptions(
+            out InferenceProvider provider,
+            out InferenceFallbackReason fallback,
+            out int deviceId)
+        {
             if (!_options.UseGpuAcceleration)
             {
-                _logger.LogInformation("GPU Acceleration disabled by config. Using CPU.");
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail(
+                    "gpu.user-enabled",
+                    "UseGpuAcceleration is enabled",
+                    "Config",
+                    NextOrder(),
+                    "UseGpuAcceleration=false"));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rid.platform", "Host platform detection", "Platform", NextOrder(), "UseGpuAcceleration=false"));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("provider.append", "Execution provider append", "Provider", NextOrder(), "UseGpuAcceleration=false"));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("session.construct", "Session construction", "Session", NextOrder(), "UseGpuAcceleration=false"));
+
+                provider = InferenceProvider.Cpu;
+                fallback = InferenceFallbackReason.UserDisabledGpu;
+                deviceId = 0;
+                var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
                 options.AppendExecutionProvider_CPU();
                 return options;
             }
 
-            // 1. Windows Strategy (DirectML)
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                try
-                {
-                    _logger.LogInformation("Platform detected: Windows. Attempting DirectML...");
-                    options.AppendExecutionProvider_DML(_options.DeviceId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"DirectML failed to load. Falling back to CPU. Error: {ex.Message}");
-                    options.AppendExecutionProvider_CPU();
-                }
-            }
-            // 2. macOS Strategy (CoreML)
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                try
-                {
-                    _logger.LogInformation("Platform detected: macOS. Attempting CoreML...");
-                    options.AppendExecutionProvider_CoreML(CoreMLFlags.COREML_FLAG_ENABLE_ON_SUBGRAPH);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"CoreML failed to load. Falling back to CPU. Error: {ex.Message}");
-                    options.AppendExecutionProvider_CPU();
-                }
-            }
-            // 3. Linux Strategy (ROCm on x64, CPU on ARM64)
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
-                && RuntimeInformation.ProcessArchitecture == Architecture.X64)
-            {
-                if (!IsRocmRuntimeUsable())
-                {
-                    _logger.LogInformation("Platform detected: Linux x64. ROCm runtime not available on this host — using CPU provider.");
-                    options.AppendExecutionProvider_CPU();
-                    return options;
-                }
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("gpu.user-enabled", "UseGpuAcceleration is enabled", "Config", NextOrder()));
 
-                _logger.LogInformation("Platform detected: Linux x64. ROCm runtime detected. Attempting ROCm provider...");
-
-                try
-                {
-                    using var rocmOptions = new OrtROCMProviderOptions();
-                    rocmOptions.UpdateOptions(new Dictionary<string, string>
-                    {
-                        ["device_id"] = _options.DeviceId.ToString(),
-                        ["miopen_conv_exhaustive_search"] = "1",
-                        ["arena_extend_strategy"] = "kSameAsRequested",
-                    });
-
-                    options.AppendExecutionProvider_ROCm(rocmOptions);
-                    rocmProviderAppended = true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "ROCm provider failed to load. Falling back to CPU.");
-                    options.AppendExecutionProvider_CPU();
-                }
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
-                && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+            var platform = HostPlatformDetector.Current();
+            var (sessionOptions, prov, fb, dev) = platform switch
             {
-                _logger.LogInformation("Platform detected: Linux ARM64. Using CPU provider.");
-                options.AppendExecutionProvider_CPU();
-            }
-            // 4. Other Platform Strategy (CPU Fallback)
-            else
-            {
-                _logger.LogInformation("Platform detected: Other. Using default CPU provider.");
-                options.AppendExecutionProvider_CPU();
-            }
+                HostPlatform.LinuxX64 => TryRocmBranch(),
+                HostPlatform.WinX64 or HostPlatform.WinArm64 => TryDirectMlBranch(),
+                HostPlatform.OSX64 or HostPlatform.OSXArm64 => TryCoreMlBranch(),
+                _ => TryCpuBranch(InferenceFallbackReason.UnsupportedPlatform),
+            };
 
-            return options;
+            provider = prov;
+            fallback = fb;
+            deviceId = dev;
+            return sessionOptions;
+        }
+
+        private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) TryRocmBranch()
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rid.platform", "Host is Linux x64", "Platform", NextOrder()));
+            var deviceId = _options.DeviceId;
+
+            if (!File.Exists("/dev/kfd"))
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("kfd.present", "/dev/kfd exists", "Provider", NextOrder(), "/dev/kfd not found"));
+                SkipRocmProviderChecks("precondition kfd.present failed");
+                return BuildCpuFallback(InferenceFallbackReason.KfdDeviceMissing, deviceId);
+            }
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("kfd.present", "/dev/kfd exists", "Provider", NextOrder()));
+
+            if (!NativeLibrary.TryLoad("libhsa-runtime64.so", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var hsaHandle))
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), "NativeLibrary.TryLoad returned false"));
+                SkipRocmProviderChecks("precondition hsa.dlopen failed");
+                return BuildCpuFallback(InferenceFallbackReason.HsaRuntimeUnloadable, deviceId);
+            }
+            if (hsaHandle != IntPtr.Zero) NativeLibrary.Free(hsaHandle);
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder()));
+
+            var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
+            try
+            {
+                using var rocmOptions = new OrtROCMProviderOptions();
+                rocmOptions.UpdateOptions(new Dictionary<string, string>
+                {
+                    ["device_id"] = deviceId.ToString(),
+                    ["miopen_conv_exhaustive_search"] = "1",
+                    ["arena_extend_strategy"] = "kSameAsRequested",
+                });
+                options.AppendExecutionProvider_ROCm(rocmOptions);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder()));
+                return (options, InferenceProvider.Rocm, InferenceFallbackReason.None, deviceId);
+            }
+            catch (Exception ex)
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.session", "ROCm InferenceSession construction", "Session", NextOrder(), "precondition rocm.append failed"));
+                options.Dispose();
+                return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
+            }
+        }
+
+        private void SkipRocmProviderChecks(string reason)
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.session", "ROCm InferenceSession construction", "Session", NextOrder(), reason));
+        }
+
+        private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) TryDirectMlBranch()
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rid.platform", "Host is Windows", "Platform", NextOrder()));
+            var deviceId = _options.DeviceId;
+            var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
+
+            try
+            {
+                options.AppendExecutionProvider_DML(deviceId);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("dml.append", "AppendExecutionProvider_DML succeeded", "Provider", NextOrder()));
+                return (options, InferenceProvider.DirectML, InferenceFallbackReason.None, deviceId);
+            }
+            catch (Exception ex)
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("dml.append", "AppendExecutionProvider_DML succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("dml.session", "DirectML InferenceSession construction", "Session", NextOrder(), "precondition dml.append failed"));
+                options.Dispose();
+                return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
+            }
+        }
+
+        private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) TryCoreMlBranch()
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rid.platform", "Host is macOS", "Platform", NextOrder()));
+            var deviceId = _options.DeviceId;
+            var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
+
+            try
+            {
+                options.AppendExecutionProvider_CoreML(CoreMLFlags.COREML_FLAG_ENABLE_ON_SUBGRAPH);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("coreml.append", "AppendExecutionProvider_CoreML succeeded", "Provider", NextOrder()));
+                return (options, InferenceProvider.CoreML, InferenceFallbackReason.None, deviceId);
+            }
+            catch (Exception ex)
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("coreml.append", "AppendExecutionProvider_CoreML succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("coreml.session", "CoreML InferenceSession construction", "Session", NextOrder(), "precondition coreml.append failed"));
+                options.Dispose();
+                return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
+            }
+        }
+
+        private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) TryCpuBranch(InferenceFallbackReason reason)
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Fail("rid.platform", "Host platform detection", "Platform", NextOrder(), $"Unsupported platform: {HostPlatformDetector.Current()}"));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("provider.append", "Execution provider append", "Provider", NextOrder(), "unsupported platform"));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("session.construct", "Session construction", "Session", NextOrder(), "unsupported platform"));
+            var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
+            options.AppendExecutionProvider_CPU();
+            return (options, InferenceProvider.Cpu, reason, 0);
+        }
+
+        private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) BuildCpuFallback(InferenceFallbackReason reason, int deviceId)
+        {
+            var options = CreateCpuOnlySessionOptions();
+            return (options, InferenceProvider.Cpu, reason, deviceId);
+        }
+
+        private void AppendSessionCheck(InferenceProvider provider, bool passed, string? detail = null)
+        {
+            var name = provider switch
+            {
+                InferenceProvider.Rocm => "rocm.session",
+                InferenceProvider.DirectML => "dml.session",
+                InferenceProvider.CoreML => "coreml.session",
+                _ => "cpu.session",
+            };
+            var desc = $"{provider} InferenceSession construction";
+            _pendingChecks.Add(passed
+                ? ProviderDiagnosticCheck.Pass(name, desc, "Session", NextOrder(), detail)
+                : ProviderDiagnosticCheck.Fail(name, desc, "Session", NextOrder(), detail ?? "unknown failure"));
+        }
+
+        private void AppendFallbackChecks(SessionOptions cpuOptions, string modelPath)
+        {
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("cpu.fallback-options", "CreateCpuOnlySessionOptions() succeeded", "Fallback", NextOrder()));
+            try
+            {
+                _session = new InferenceSession(modelPath, cpuOptions);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("cpu.fallback-session", "CPU InferenceSession constructed", "Fallback", NextOrder()));
+            }
+            catch (Exception ex)
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("cpu.fallback-session", "CPU InferenceSession construction", "Fallback", NextOrder(), ex.Message));
+                throw;
+            }
+        }
+
+        private void FireOnSessionInitialized(InferenceEngineInfo info)
+        {
+            if (_options.OnSessionInitialized is null) return;
+            try
+            {
+                _options.OnSessionInitialized(info);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OnSessionInitialized callback threw; engine is still usable.");
+            }
+        }
+
+        private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider)
+        {
+            if (provider == InferenceProvider.Rocm)
+                return ImmutableDictionary<string, string>.Empty
+                    .Add("miopen_conv_exhaustive_search", "1")
+                    .Add("arena_extend_strategy", "kSameAsRequested");
+            return ImmutableDictionary<string, string>.Empty;
         }
 
         private static SessionOptions CreateCpuOnlySessionOptions()
@@ -335,18 +495,8 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// Determines whether an exception thrown during ONNX session initialization represents a
-        /// recoverable native library loading failure (for example, a missing or unloadable
-        /// <c>libonnxruntime.so</c>, or a corrupted / wrong-architecture native binary). When
-        /// GPU acceleration was requested, such failures should trigger a CPU fallback;
-        /// otherwise the exception should propagate so the outer <c>LogError</c> handler can
-        /// report it.
+        /// recoverable native library loading failure.
         /// </summary>
-        /// <param name="ex">The exception thrown while building or opening the ONNX session.</param>
-        /// <returns>
-        /// <see langword="true"/> if <paramref name="ex"/> is or wraps an
-        /// <see cref="OnnxRuntimeException"/>, <see cref="DllNotFoundException"/>, or
-        /// <see cref="BadImageFormatException"/>; otherwise, <see langword="false"/>.
-        /// </returns>
         private static bool IsRecoverableNativeFailure(Exception ex)
         {
             if (ex is OnnxRuntimeException or DllNotFoundException or BadImageFormatException) return true;
@@ -356,57 +506,7 @@ namespace InferenceEngine.Core
         }
 
         /// <summary>
-        /// Determines whether the ROCm execution provider is usable on the current host.
-        /// On Linux, checks that the kernel fusion driver (<c>/dev/kfd</c>) is exposed AND that
-        /// the ROCm HSA runtime library (<c>libhsa-runtime64.so</c>) can be resolved via dlopen.
-        /// On other platforms, returns <see langword="false"/>.
-        /// </summary>
-        /// <returns>
-        /// <see langword="true"/> when both the ROCm kernel driver and HSA runtime are reachable;
-        /// <see langword="false"/> otherwise. The reason for a <see langword="false"/> result is
-        /// logged at <c>Debug</c> level.
-        /// </returns>
-        private bool IsRocmRuntimeUsable()
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                return false;
-            }
-
-            if (!File.Exists("/dev/kfd"))
-            {
-                _logger.LogDebug("ROCm kernel fusion driver not present (/dev/kfd missing). ROCm provider unavailable.");
-                return false;
-            }
-
-            try
-            {
-                var handle = NativeLibrary.Load(
-                    "libhsa-runtime64.so",
-                    typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
-                if (handle != IntPtr.Zero)
-                {
-                    NativeLibrary.Free(handle);
-                }
-                return true;
-            }
-            catch (Exception ex) when (ex is DllNotFoundException or TypeInitializationException or InvalidOperationException or BadImageFormatException)
-            {
-                // This is a probe method intended for silent fallback. NativeLibrary.Load can
-                // surface a variety of non-fatal load failures that should all be treated as
-                // "ROCm not usable on this host":
-                //   - DllNotFoundException: the .so is not present on the host.
-                //   - TypeInitializationException: some platforms wrap the inner load exception.
-                //   - InvalidOperationException: surface by NativeLibrary.Load in some paths.
-                //   - BadImageFormatException: the .so is corrupted or has a mismatched architecture.
-                _logger.LogDebug(ex, "ROCm HSA runtime probe failed. ROCm provider unavailable.");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Generates dummy input for model warmup. 
+        /// Generates dummy input for model warmup.
         /// Default implementation assumes float tensors. Override this for int64/string inputs.
         /// </summary>
         protected virtual List<NamedOnnxValue> GetWarmupInput()
@@ -416,9 +516,8 @@ namespace InferenceEngine.Core
 
             foreach (var inputMeta in InputMetadata)
             {
-                // Handle dynamic dimensions (-1) by defaulting to 1
                 var shape = inputMeta.Value.Dimensions.Select(d => d == -1 ? 1 : d).ToArray();
-                var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape); 
+                var tensorData = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(shape);
                 inputs.Add(NamedOnnxValue.CreateFromTensor(inputMeta.Key, tensorData));
             }
             return inputs;
@@ -430,7 +529,7 @@ namespace InferenceEngine.Core
             {
                 _logger.LogInformation("Performing warmup inference...");
                 var inputs = GetWarmupInput();
-                
+
                 if (inputs.Count > 0)
                 {
                     using var results = _session!.Run(inputs);
