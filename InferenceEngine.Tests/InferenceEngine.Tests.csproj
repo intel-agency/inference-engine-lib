@@ -97,8 +97,10 @@
        (transitively pulled in by the Core project reference) ships a ROCm-enabled
        libonnxruntime.so that SIGSEGVs on non-ROCm hosts. Restore the upstream
        Microsoft.ML.OnnxRuntime package's CPU-only libonnxruntime.so over it so the test
-       build's output is loadable on Intel-only runners. The runtime check in
-       BaseInferenceEngine still decides whether to dlopen the ROCm provider .so. -->
+       build's output is loadable on all runners. The runtime check in
+       BaseInferenceEngine still decides whether to dlopen the ROCm provider .so.
+       TODO: Gate on !Exists('/dev/kfd') once a 1.24.x-compatible
+       InferenceEngine.ROCm.Runtime.linux-x64 package is published. -->
   <Target Name="RestoreUpstreamCpuLibOnLinux"
           AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
           Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">

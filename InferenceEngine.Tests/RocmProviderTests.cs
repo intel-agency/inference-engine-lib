@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using InferenceEngine.Core;
+using InferenceEngine.Core.Diagnostics;
 using InferenceEngine.Core.ModelProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.ML.OnnxRuntime;
@@ -45,7 +46,7 @@ public sealed class RocmProviderTests : IDisposable
             WarmupOnLoad = false
         });
 
-        (SessionOptions Options, bool RocmProviderAppended) configuredOptions = default;
+        (SessionOptions Options, InferenceProvider Provider) configuredOptions = default;
         var exception = Record.Exception(() => configuredOptions = engine.GetConfiguredSessionOptions());
         Assert.Null(exception);
 
@@ -53,9 +54,9 @@ public sealed class RocmProviderTests : IDisposable
         {
             Assert.NotNull(configuredOptions.Options);
             Skip.IfNot(
-                configuredOptions.RocmProviderAppended,
+                configuredOptions.Provider == InferenceProvider.Rocm,
                 "ROCm provider was not appended on this Linux x64 environment; ROCm configuration could not be validated.");
-            Assert.True(configuredOptions.RocmProviderAppended);
+            Assert.Equal(InferenceProvider.Rocm, configuredOptions.Provider);
         }
     }
 
@@ -106,10 +107,10 @@ public sealed class RocmProviderTests : IDisposable
             WarmupOnLoad = false
         });
 
-        var (options, rocmProviderAppended) = engine.GetConfiguredSessionOptions();
+        var (options, provider) = engine.GetConfiguredSessionOptions();
         using (options)
         {
-            Assert.False(rocmProviderAppended);
+            Assert.NotEqual(InferenceProvider.Rocm, provider);
         }
     }
 
@@ -133,7 +134,7 @@ public sealed class RocmProviderTests : IDisposable
             DeviceId = 1
         });
 
-        (SessionOptions Options, bool RocmProviderAppended) configuredOptions = default;
+        (SessionOptions Options, InferenceProvider Provider) configuredOptions = default;
         var exception = Record.Exception(() => configuredOptions = engine.GetConfiguredSessionOptions());
         Assert.Null(exception);
 
@@ -141,9 +142,9 @@ public sealed class RocmProviderTests : IDisposable
         {
             Assert.NotNull(configuredOptions.Options);
             Skip.IfNot(
-                configuredOptions.RocmProviderAppended,
+                configuredOptions.Provider == InferenceProvider.Rocm,
                 "ROCm provider was not appended on this Linux x64 environment; typed ROCm API configuration could not be validated.");
-            Assert.True(configuredOptions.RocmProviderAppended);
+            Assert.Equal(InferenceProvider.Rocm, configuredOptions.Provider);
         }
     }
 
@@ -163,10 +164,10 @@ public sealed class RocmProviderTests : IDisposable
             WarmupOnLoad = false
         });
 
-        var (options, rocmProviderAppended) = engine.GetConfiguredSessionOptions();
+        var (options, provider) = engine.GetConfiguredSessionOptions();
         using (options)
         {
-            Assert.False(rocmProviderAppended);
+            Assert.NotEqual(InferenceProvider.Rocm, provider);
         }
     }
 
@@ -378,18 +379,18 @@ public sealed class RocmProviderTests : IDisposable
             return string.Empty;
         }
 
-        public (SessionOptions Options, bool RocmProviderAppended) GetConfiguredSessionOptions()
+        public (SessionOptions Options, InferenceProvider Provider) GetConfiguredSessionOptions()
         {
             var method = typeof(BaseInferenceEngine<string, string>)
                 .GetMethod("ConfiguredSessionOptions", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new MissingMethodException(typeof(BaseInferenceEngine<string, string>).FullName, "ConfiguredSessionOptions");
 
-            object?[] parameters = [false];
+            object?[] parameters = [InferenceProvider.Unknown, InferenceFallbackReason.None, 0];
             var options = method.Invoke(this, parameters) as SessionOptions
                 ?? throw new InvalidOperationException("ConfiguredSessionOptions did not return SessionOptions.");
 
-            var rocmProviderAppended = parameters[0] is true;
-            return (options, rocmProviderAppended);
+            var provider = (InferenceProvider)parameters[0]!;
+            return (options, provider);
         }
     }
 }
