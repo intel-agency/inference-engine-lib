@@ -163,14 +163,14 @@ public sealed class EngineInfoTests : IDisposable
     }
 
     [SkippableFact]
-    public async Task EngineInfo_ProviderOptions_ReflectsRocmOptions_WhenRocmActive()
+    public async Task EngineInfo_ProviderOptions_ReflectsMIGraphXOptions_WhenMIGraphXActive()
     {
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
             RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm runtime not usable on this host.");
+        Skip.IfNot(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime not usable on this host.");
 
         var modelPath = CreateTestModel();
 
@@ -183,17 +183,16 @@ public sealed class EngineInfoTests : IDisposable
 
         await engine.LoadAsync();
 
-        if (engine.EngineInfo.Provider == InferenceProvider.Rocm)
+        if (engine.EngineInfo.Provider == InferenceProvider.MIGraphX)
         {
-            Assert.Contains("miopen_conv_exhaustive_search", engine.EngineInfo.ProviderOptions.Keys);
-            Assert.Contains("arena_extend_strategy", engine.EngineInfo.ProviderOptions.Keys);
+            Assert.Empty(engine.EngineInfo.ProviderOptions);
         }
     }
 
     // --- Integration tests (SkippableFact for platform-specific) ---
 
     [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithKfd_RocmWithAllChecksPassed()
+    public async Task EngineInfo_LinuxX64WithKfd_MIGraphXWithAllChecksPassed()
     {
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
@@ -201,7 +200,7 @@ public sealed class EngineInfoTests : IDisposable
             "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
         Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
-        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm runtime not usable on this host.");
+        Skip.IfNot(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime not usable on this host.");
 
         var modelPath = CreateTestModel();
 
@@ -215,8 +214,8 @@ public sealed class EngineInfoTests : IDisposable
         await engine.LoadAsync();
 
         Skip.IfNot(
-            engine.EngineInfo.Provider == InferenceProvider.Rocm,
-            $"ROCm EP not available in this ONNX Runtime build (got {engine.EngineInfo.Provider}, fallback={engine.EngineInfo.FallbackReason})");
+            engine.EngineInfo.Provider == InferenceProvider.MIGraphX,
+            $"MIGraphX EP not available in this ONNX Runtime build (got {engine.EngineInfo.Provider}, fallback={engine.EngineInfo.FallbackReason})");
 
         Assert.False(engine.EngineInfo.IsFallback);
         Assert.Equal(InferenceFallbackReason.None, engine.EngineInfo.FallbackReason);
@@ -224,6 +223,14 @@ public sealed class EngineInfoTests : IDisposable
         var kfdCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "kfd.present");
         Assert.NotNull(kfdCheck);
         Assert.Equal(CheckResult.Passed, kfdCheck.Result);
+
+        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
+        Assert.NotNull(hipCheck);
+        Assert.Equal(CheckResult.Passed, hipCheck.Result);
+
+        var mgxCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "migraphx.dlopen");
+        Assert.NotNull(mgxCheck);
+        Assert.Equal(CheckResult.Passed, mgxCheck.Result);
     }
 
     [SkippableFact]
@@ -318,6 +325,81 @@ public sealed class EngineInfoTests : IDisposable
     }
 
     [SkippableFact]
+    public async Task EngineInfo_LinuxX64WithKfd_CpuWithHipRuntimeMissing()
+    {
+        Skip.IfNot(
+            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
+            RuntimeInformation.ProcessArchitecture == Architecture.X64,
+            "Test requires Linux x64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
+        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm HSA runtime not usable; test requires it.");
+        Skip.If(IsHipRuntimeUsableOnHost(), "HIP runtime IS loadable; test requires it to be missing.");
+
+        var modelPath = CreateTestModel();
+
+        var engine = CreateEngine(new InferenceEngineOptions
+        {
+            UseGpuAcceleration = true,
+            WarmupOnLoad = false,
+            ModelProvider = new LocalModelProvider(modelPath),
+        });
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.HipRuntimeMissing, engine.EngineInfo.FallbackReason);
+
+        var hsaCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hsa.dlopen");
+        Assert.NotNull(hsaCheck);
+        Assert.Equal(CheckResult.Passed, hsaCheck.Result);
+
+        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
+        Assert.NotNull(hipCheck);
+        Assert.Equal(CheckResult.Failed, hipCheck.Result);
+        Assert.Contains("libamdhip64.so.7", hipCheck.Detail);
+    }
+
+    [SkippableFact]
+    public async Task EngineInfo_LinuxX64WithKfd_CpuWithMIGraphXRuntimeMissing()
+    {
+        Skip.IfNot(
+            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
+            RuntimeInformation.ProcessArchitecture == Architecture.X64,
+            "Test requires Linux x64 platform");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
+        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm HSA runtime not usable; test requires it.");
+        Skip.IfNot(IsHipRuntimeUsableOnHost(), "HIP runtime not usable; test requires it.");
+        Skip.If(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime IS loadable; test requires it to be missing.");
+
+        var modelPath = CreateTestModel();
+
+        var engine = CreateEngine(new InferenceEngineOptions
+        {
+            UseGpuAcceleration = true,
+            WarmupOnLoad = false,
+            ModelProvider = new LocalModelProvider(modelPath),
+        });
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.MIGraphXRuntimeMissing, engine.EngineInfo.FallbackReason);
+
+        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
+        Assert.NotNull(hipCheck);
+        Assert.Equal(CheckResult.Passed, hipCheck.Result);
+
+        var mgxCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "migraphx.dlopen");
+        Assert.NotNull(mgxCheck);
+        Assert.Equal(CheckResult.Failed, mgxCheck.Result);
+        Assert.Contains("libmigraphx_c.so.3", mgxCheck.Detail);
+    }
+
+    [SkippableFact]
     public async Task EngineInfo_MacOS_CoreMLWithAllChecksPassed()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "Test requires macOS platform");
@@ -369,6 +451,36 @@ public sealed class EngineInfoTests : IDisposable
         try
         {
             var handle = NativeLibrary.Load("libhsa-runtime64.so",
+                System.Reflection.Assembly.GetExecutingAssembly(),
+                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsHipRuntimeUsableOnHost()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
+        try
+        {
+            var handle = NativeLibrary.Load("libamdhip64.so.7",
+                System.Reflection.Assembly.GetExecutingAssembly(),
+                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsMIGraphXRuntimeUsableOnHost()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
+        if (!IsRocmRuntimeUsableOnHost()) return false;
+        if (!IsHipRuntimeUsableOnHost()) return false;
+        try
+        {
+            var handle = NativeLibrary.Load("libmigraphx_c.so.3",
                 System.Reflection.Assembly.GetExecutingAssembly(),
                 DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
             if (handle != IntPtr.Zero) NativeLibrary.Free(handle);

@@ -96,16 +96,16 @@ public class FaceDetectionEngineTests
     // --- ROCm GPU Inference Tests ---
 
     /// <summary>
-    /// Returns true when <c>libonnxruntime_providers_rocm.so</c> is present in the output
+    /// Returns true when <c>libonnxruntime_providers_migraphx.so</c> is present in the output
     /// directory, indicating the <c>InferenceEngine.ROCm.Runtime.linux-x64</c> NuGet package
     /// has been restored and its native assets were copied to the build output.
     /// </summary>
-    private static bool IsRocmLibPresent()
+    private static bool IsMIGraphXLibPresent()
     {
         var candidates = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "libonnxruntime_providers_rocm.so"),
-            Path.Combine(AppContext.BaseDirectory, "runtimes", "linux-x64", "native", "libonnxruntime_providers_rocm.so"),
+            Path.Combine(AppContext.BaseDirectory, "libonnxruntime_providers_migraphx.so"),
+            Path.Combine(AppContext.BaseDirectory, "runtimes", "linux-x64", "native", "libonnxruntime_providers_migraphx.so"),
         };
         return candidates.Any(File.Exists);
     }
@@ -160,6 +160,29 @@ public class FaceDetectionEngineTests
         }
     }
 
+    private static bool IsMIGraphXRuntimeUsableOnHost()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
+        try
+        {
+            var hipHandle = NativeLibrary.Load("libamdhip64.so.7",
+                Assembly.GetExecutingAssembly(),
+                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+            if (hipHandle != IntPtr.Zero) NativeLibrary.Free(hipHandle);
+        }
+        catch { return false; }
+
+        try
+        {
+            var mgxHandle = NativeLibrary.Load("libmigraphx_c.so.3",
+                Assembly.GetExecutingAssembly(),
+                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+            if (mgxHandle != IntPtr.Zero) NativeLibrary.Free(mgxHandle);
+            return true;
+        }
+        catch { return false; }
+    }
+
     /// <summary>
     /// Validates end-to-end inference runs successfully on Linux x64 when the ROCm native
     /// library is present. The engine may use the ROCm EP or fall back to CPU transparently;
@@ -171,7 +194,7 @@ public class FaceDetectionEngineTests
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
-        Skip.IfNot(IsRocmLibPresent(), "libonnxruntime_providers_rocm.so not found — InferenceEngine.ROCm.Runtime.linux-x64 package assets must be present");
+        Skip.IfNot(IsMIGraphXLibPresent(), "libonnxruntime_providers_migraphx.so not found — InferenceEngine.ROCm.Runtime.linux-x64 package assets must be present");
         Skip.IfNot(IsBaseNativeOnnxRuntimeLoadable(), "Base ONNX Runtime native library is not loadable — verify libonnxruntime.so is present and built for linux-x64 (try --runtime linux-x64)");
         Skip.IfNot(NetworkIsAvailable(), "Network is not available");
 
@@ -186,18 +209,19 @@ public class FaceDetectionEngineTests
     }
 
     /// <summary>
-    /// Validates that inference runs with the ROCm execution provider active when real AMD GPU
-    /// hardware is available (<c>/dev/kfd</c> present). Fails if the session falls back to CPU
-    /// despite ROCm hardware being present.
+    /// Validates that inference runs with the MIGraphX execution provider active when real AMD GPU
+    /// hardware is available (<c>/dev/kfd</c> present) and all required runtimes (HSA, HIP, MIGraphX)
+    /// are installed. Fails if the session falls back to CPU despite full ROCm stack being present.
     /// </summary>
     [SkippableFact]
-    public async Task PredictAsync_OnLinuxX64WithAmdGpu_ShouldUseRocmProvider()
+    public async Task PredictAsync_OnLinuxX64WithAmdGpu_ShouldUseMIGraphXProvider()
     {
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
         Skip.IfNot(IsRocmRuntimeUsableOnHost(), "No usable AMD GPU on this host (no /dev/kfd or libhsa-runtime64.so unreachable) — requires self-hosted runner with ROCm installed");
-        Skip.IfNot(IsRocmLibPresent(), "libonnxruntime_providers_rocm.so not found — build with --runtime linux-x64 to copy native assets");
+        Skip.IfNot(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime not fully installed (missing libamdhip64.so.7 or libmigraphx_c.so.3) — requires self-hosted runner with full ROCm/MIGraphX stack");
+        Skip.IfNot(IsMIGraphXLibPresent(), "libonnxruntime_providers_migraphx.so not found — build with --runtime linux-x64 to copy native assets");
         Skip.IfNot(IsBaseNativeOnnxRuntimeLoadable(), "Base ONNX Runtime native library is not loadable — verify libonnxruntime.so is present and built for linux-x64 (try --runtime linux-x64)");
         Skip.IfNot(NetworkIsAvailable(), "Network is not available");
 
@@ -207,7 +231,7 @@ public class FaceDetectionEngineTests
         var results = await engine.PredictAsync(imageBytes);
 
         Assert.True(engine.IsRocmSessionActive,
-            "Expected ROCm execution provider to be active — AMD GPU present but ROCm session did not initialize. Check ROCm driver installation.");
+            "Expected MIGraphX execution provider to be active — AMD GPU present but MIGraphX session did not initialize. Check ROCm driver installation.");
         Assert.NotNull(results);
         Assert.NotEmpty(results);
         Assert.Contains(results, r => r.Label is "person" or "bus" or "car");
