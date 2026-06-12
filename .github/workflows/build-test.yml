@@ -53,20 +53,14 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: build-artifacts-${{ matrix.os }}
-          # Only upload the net10.0 RID-specific build output (where the test runner expects it).
-          # Excludes NuGet restore caches, symbols, and the framework-dependent multi-RID payload
-          # that bloats the artifact to 150+ MB. The test stage restores packages and re-runs
-          # `dotnet test --no-build` against this exact path.
+          # Framework-dependent build output (`dotnet build` without --runtime). The
+          # net10.0 subfolder is where the test stage runs `dotnet test --no-build`.
+          # Excludes NuGet restore caches, symbols, and ref assemblies that bloated
+          # the previous bin/Release/ upload to 150+ MB per platform.
           path: |
-            InferenceEngine.Core/bin/Release/net10.0/linux-x64/
-            InferenceEngine.Core/bin/Release/net10.0/win-x64/
-            InferenceEngine.Core/bin/Release/net10.0/osx-x64/
-            InferenceEngine.Tests/bin/Release/net10.0/linux-x64/
-            InferenceEngine.Tests/bin/Release/net10.0/win-x64/
-            InferenceEngine.Tests/bin/Release/net10.0/osx-x64/
-            InferenceEngine.Core.IntegrationTests/bin/Release/net10.0/linux-x64/
-            InferenceEngine.Core.IntegrationTests/bin/Release/net10.0/win-x64/
-            InferenceEngine.Core.IntegrationTests/bin/Release/net10.0/osx-x64/
+            InferenceEngine.Core/bin/Release/net10.0/
+            InferenceEngine.Tests/bin/Release/net10.0/
+            InferenceEngine.Core.IntegrationTests/bin/Release/net10.0/
           retention-days: 1
 
   # ── Stage 2: Test ─────────────────────────────────────────────────────────
