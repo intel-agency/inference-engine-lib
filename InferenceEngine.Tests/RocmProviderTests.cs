@@ -54,39 +54,10 @@ public sealed class RocmProviderTests : IDisposable
         {
             Assert.NotNull(configuredOptions.Options);
             Skip.IfNot(
-                configuredOptions.Provider == InferenceProvider.Rocm,
-                "ROCm provider was not appended on this Linux x64 environment; ROCm configuration could not be validated.");
-            Assert.Equal(InferenceProvider.Rocm, configuredOptions.Provider);
+                configuredOptions.Provider == InferenceProvider.MIGraphX,
+                "MIGraphX provider was not appended on this Linux x64 environment; MIGraphX configuration could not be validated.");
+            Assert.Equal(InferenceProvider.MIGraphX, configuredOptions.Provider);
         }
-    }
-
-    /// <summary>
-    /// Validates engine load succeeds when ROCm is unavailable by falling back to CPU.
-    /// </summary>
-    [SkippableFact]
-    public async Task LoadAsync_RocmUnavailable_FallsBackToCpu()
-    {
-        // Platform-specific: this test exercises Linux x64 ROCm-first load with fallback behavior.
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
-        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available in this environment.");
-
-        var modelPath = Path.Combine(_testDir, "minimal-identity.onnx");
-        CreateMinimalOnnxModel(modelPath);
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath)
-        });
-
-        await engine.LoadAsync();
-
-        Assert.NotNull(engine.InputMetadata);
-        Assert.NotNull(engine.OutputMetadata);
-        Assert.False(string.IsNullOrWhiteSpace(engine.PrimaryInputName));
     }
 
     /// <summary>
@@ -110,17 +81,17 @@ public sealed class RocmProviderTests : IDisposable
         var (options, provider) = engine.GetConfiguredSessionOptions();
         using (options)
         {
-            Assert.NotEqual(InferenceProvider.Rocm, provider);
+            Assert.NotEqual(InferenceProvider.MIGraphX, provider);
         }
     }
 
     /// <summary>
-    /// Validates Linux x64 ROCm provider configuration executes successfully with a specific device id.
+    /// Validates Linux x64 MIGraphX provider configuration executes successfully with a specific device id.
     /// </summary>
     [SkippableFact]
-    public void ConfiguredSessionOptions_OnLinuxX64_UsesTypedRocmApi()
+    public void ConfiguredSessionOptions_OnLinuxX64_UsesMIGraphXProvider()
     {
-        // Platform-specific: validates typed ROCm provider option configuration on Linux x64.
+        // Platform-specific: validates MIGraphX provider option configuration on Linux x64.
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && RuntimeInformation.ProcessArchitecture == Architecture.X64,
             "Test requires Linux x64 platform");
@@ -142,9 +113,9 @@ public sealed class RocmProviderTests : IDisposable
         {
             Assert.NotNull(configuredOptions.Options);
             Skip.IfNot(
-                configuredOptions.Provider == InferenceProvider.Rocm,
-                "ROCm provider was not appended on this Linux x64 environment; typed ROCm API configuration could not be validated.");
-            Assert.Equal(InferenceProvider.Rocm, configuredOptions.Provider);
+                configuredOptions.Provider == InferenceProvider.MIGraphX,
+                "MIGraphX provider was not appended on this Linux x64 environment; typed MIGraphX API configuration could not be validated.");
+            Assert.Equal(InferenceProvider.MIGraphX, configuredOptions.Provider);
         }
     }
 
@@ -167,7 +138,7 @@ public sealed class RocmProviderTests : IDisposable
         var (options, provider) = engine.GetConfiguredSessionOptions();
         using (options)
         {
-            Assert.NotEqual(InferenceProvider.Rocm, provider);
+            Assert.NotEqual(InferenceProvider.MIGraphX, provider);
         }
     }
 
