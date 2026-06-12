@@ -199,6 +199,10 @@ namespace InferenceEngine.Core
                         sessionOptions = CreateCpuOnlySessionOptions();
                         AppendFallbackChecks(sessionOptions, modelPath);
                     }
+                    finally
+                    {
+                        sessionOptions?.Dispose();
+                    }
 
                     _runOptions = new RunOptions();
 
@@ -333,21 +337,45 @@ namespace InferenceEngine.Core
             }
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("kfd.present", "/dev/kfd exists", "Provider", NextOrder()));
 
-            if (!NativeLibrary.TryLoad("libhsa-runtime64.so", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var hsaHandle))
+            IntPtr hsaHandle = IntPtr.Zero;
+            bool hsaLoaded = false;
+            string? hsaError = null;
+            try
             {
-                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), "NativeLibrary.TryLoad returned false"));
+                hsaLoaded = NativeLibrary.TryLoad("libhsa-runtime64.so", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out hsaHandle);
+            }
+            catch (Exception ex)
+            {
+                hsaError = ex.Message;
+            }
+
+            if (!hsaLoaded)
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), hsaError ?? "NativeLibrary.TryLoad returned false"));
                 SkipRocmProviderChecks("precondition hsa.dlopen failed");
                 return BuildCpuFallback(InferenceFallbackReason.HsaRuntimeUnloadable, deviceId);
             }
             if (hsaHandle != IntPtr.Zero) NativeLibrary.Free(hsaHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder()));
 
-            if (!NativeLibrary.TryLoad("libamdhip64.so.7", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var hipHandle))
+            IntPtr hipHandle = IntPtr.Zero;
+            bool hipLoaded = false;
+            string? hipError = null;
+            try
+            {
+                hipLoaded = NativeLibrary.TryLoad("libamdhip64.so.7", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out hipHandle);
+            }
+            catch (Exception ex)
+            {
+                hipError = ex.Message;
+            }
+
+            if (!hipLoaded)
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder(),
-                    "libamdhip64.so.7 not found. HIP runtime is required for MIGraphX GPU acceleration. " +
+                    hipError ?? "libamdhip64.so.7 not found. HIP runtime is required for MIGraphX GPU acceleration. " +
                     "Install: sudo apt install hip-runtime-amd (from AMD ROCm repository). " +
                     "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
                 SkipRocmProviderChecks("precondition hip.dlopen failed");
@@ -356,11 +384,23 @@ namespace InferenceEngine.Core
             if (hipHandle != IntPtr.Zero) NativeLibrary.Free(hipHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder()));
 
-            if (!NativeLibrary.TryLoad("libmigraphx_c.so.3", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var mgxHandle))
+            IntPtr mgxHandle = IntPtr.Zero;
+            bool mgxLoaded = false;
+            string? mgxError = null;
+            try
+            {
+                mgxLoaded = NativeLibrary.TryLoad("libmigraphx_c.so.3", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out mgxHandle);
+            }
+            catch (Exception ex)
+            {
+                mgxError = ex.Message;
+            }
+
+            if (!mgxLoaded)
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder(),
-                    "libmigraphx_c.so.3 not found. MIGraphX runtime is required for GPU-accelerated inference. " +
+                    mgxError ?? "libmigraphx_c.so.3 not found. MIGraphX runtime is required for GPU-accelerated inference. " +
                     "Install: sudo apt install migraphx (from AMD ROCm repository). " +
                     "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
                 SkipRocmProviderChecks("precondition migraphx.dlopen failed");
