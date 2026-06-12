@@ -9,6 +9,8 @@ public enum InferenceFallbackReason
     PlatformProbeFailed,
     KfdDeviceMissing,
     HsaRuntimeUnloadable,
+    HipRuntimeMissing,
+    MIGraphXRuntimeMissing,
     ProviderAppendFailed,
     SessionConstructionFailed,
     NativeLibraryLoadFailed,

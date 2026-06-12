@@ -32,8 +32,8 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// Returns <see langword="true"/> when the ONNX session was successfully initialized
-        /// with the ROCm execution provider. <see langword="false"/> on non-Linux-x64 platforms,
-        /// when ROCm initialization failed, or when CPU fallback was used.
+        /// with the MIGraphX execution provider on AMD ROCm hardware. <see langword="false"/> on non-Linux-x64 platforms,
+        /// when MIGraphX initialization failed, or when CPU fallback was used.
         /// </summary>
         public bool IsRocmSessionActive { get; private set; }
 
@@ -206,7 +206,7 @@ namespace InferenceEngine.Core
                     OutputMetadata = _session!.OutputMetadata;
                     PrimaryInputName = _session!.InputMetadata.Keys.FirstOrDefault();
 
-                    IsRocmSessionActive = provider == InferenceProvider.Rocm;
+                    IsRocmSessionActive = provider == InferenceProvider.MIGraphX;
 
                     var info = new InferenceEngineInfo
                     {
@@ -343,24 +343,43 @@ namespace InferenceEngine.Core
             if (hsaHandle != IntPtr.Zero) NativeLibrary.Free(hsaHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder()));
 
+            if (!NativeLibrary.TryLoad("libamdhip64.so.7", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var hipHandle))
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder(),
+                    "libamdhip64.so.7 not found. HIP runtime is required for MIGraphX GPU acceleration. " +
+                    "Install: sudo apt install hip-runtime-amd (from AMD ROCm repository). " +
+                    "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
+                SkipRocmProviderChecks("precondition hip.dlopen failed");
+                return BuildCpuFallback(InferenceFallbackReason.HipRuntimeMissing, deviceId);
+            }
+            if (hipHandle != IntPtr.Zero) NativeLibrary.Free(hipHandle);
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder()));
+
+            if (!NativeLibrary.TryLoad("libmigraphx_c.so.3", typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var mgxHandle))
+            {
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder(),
+                    "libmigraphx_c.so.3 not found. MIGraphX runtime is required for GPU-accelerated inference. " +
+                    "Install: sudo apt install migraphx (from AMD ROCm repository). " +
+                    "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
+                SkipRocmProviderChecks("precondition migraphx.dlopen failed");
+                return BuildCpuFallback(InferenceFallbackReason.MIGraphXRuntimeMissing, deviceId);
+            }
+            if (mgxHandle != IntPtr.Zero) NativeLibrary.Free(mgxHandle);
+            _pendingChecks.Add(ProviderDiagnosticCheck.Pass("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder()));
+
             var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
             try
             {
-                using var rocmOptions = new OrtROCMProviderOptions();
-                rocmOptions.UpdateOptions(new Dictionary<string, string>
-                {
-                    ["device_id"] = deviceId.ToString(),
-                    ["miopen_conv_exhaustive_search"] = "1",
-                    ["arena_extend_strategy"] = "kSameAsRequested",
-                });
-                options.AppendExecutionProvider_ROCm(rocmOptions);
-                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder()));
-                return (options, InferenceProvider.Rocm, InferenceFallbackReason.None, deviceId);
+                options.AppendExecutionProvider_MIGraphX(deviceId);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("migraphx.append", "AppendExecutionProvider_MIGraphX succeeded", "Provider", NextOrder()));
+                return (options, InferenceProvider.MIGraphX, InferenceFallbackReason.None, deviceId);
             }
             catch (Exception ex)
             {
-                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder(), ex.Message));
-                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.session", "ROCm InferenceSession construction", "Session", NextOrder(), "precondition rocm.append failed"));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.append", "AppendExecutionProvider_MIGraphX succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Skip("migraphx.session", "MIGraphX InferenceSession construction", "Session", NextOrder(), "precondition migraphx.append failed"));
                 options.Dispose();
                 return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
             }
@@ -369,8 +388,10 @@ namespace InferenceEngine.Core
         private void SkipRocmProviderChecks(string reason)
         {
             _pendingChecks.Add(ProviderDiagnosticCheck.Skip("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), reason));
-            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.append", "AppendExecutionProvider_ROCm succeeded", "Provider", NextOrder(), reason));
-            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("rocm.session", "ROCm InferenceSession construction", "Session", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("migraphx.append", "AppendExecutionProvider_MIGraphX succeeded", "Provider", NextOrder(), reason));
+            _pendingChecks.Add(ProviderDiagnosticCheck.Skip("migraphx.session", "MIGraphX InferenceSession construction", "Session", NextOrder(), reason));
         }
 
         private (SessionOptions Options, InferenceProvider Provider, InferenceFallbackReason Fallback, int DeviceId) TryDirectMlBranch()
@@ -435,7 +456,7 @@ namespace InferenceEngine.Core
         {
             var name = provider switch
             {
-                InferenceProvider.Rocm => "rocm.session",
+                InferenceProvider.MIGraphX => "migraphx.session",
                 InferenceProvider.DirectML => "dml.session",
                 InferenceProvider.CoreML => "coreml.session",
                 _ => "cpu.session",
@@ -476,10 +497,8 @@ namespace InferenceEngine.Core
 
         private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider)
         {
-            if (provider == InferenceProvider.Rocm)
-                return ImmutableDictionary<string, string>.Empty
-                    .Add("miopen_conv_exhaustive_search", "1")
-                    .Add("arena_extend_strategy", "kSameAsRequested");
+            if (provider == InferenceProvider.MIGraphX)
+                return ImmutableDictionary<string, string>.Empty;
             return ImmutableDictionary<string, string>.Empty;
         }
 

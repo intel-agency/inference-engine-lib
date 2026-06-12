@@ -79,27 +79,19 @@
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
   </ItemGroup>
-  <!-- ROCm EP native libs — included unconditionally on Linux x64. The base ONNX Runtime
-       libonnxruntime.so is restored from the upstream Microsoft.ML.OnnxRuntime package
-       after Build (see RestoreUpstreamCpuLibOnLinux target) so the .so is safe to load on
-       hosts without ROCm drivers. At runtime, BaseInferenceEngine.ConfiguredSessionOptions
-       checks /dev/kfd and the HSA runtime before attempting to append the ROCm EP; on
-       non-ROCm hosts the engine falls back to CPU automatically.
+  <!-- MIGraphX EP native libs — included unconditionally on Linux x64.
+       The MIGraphX-enabled libonnxruntime.so from the InferenceEngine.ROCm.Runtime.linux-x64
+       package is safe to load on all hosts: it fails gracefully with managed exceptions when
+       the MIGraphX runtime (libmigraphx_c.so.3) is not installed, unlike the old ROCm EP
+       which SIGSEGVed in its .init section on non-ROCm hosts. At runtime,
+       BaseInferenceEngine.ConfiguredSessionOptions checks /dev/kfd and the HSA runtime
+       before attempting to append the MIGraphX EP; on non-ROCm hosts the engine falls
+       back to CPU automatically.
 
-       NOTE on version mismatch: the InferenceEngine.ROCm.Runtime.linux-x64 package is
-       currently pinned to 1.19.2-dev.28 — the only version published to the
-       intel-agency GitHub NuGet feed. The base Microsoft.ML.OnnxRuntime package is at
-       1.24.1. ABI coupling between the ROCm provider .so and the core libonnxruntime.so
-       is a known concern. Today the runtime handles this defensively:
-         - On non-ROCm hosts, the upstream CPU libonnxruntime.so is restored over the
-           ROCm-enabled copy, so the mismatched ROCm provider .so is never loaded.
-         - On ROCm hosts, the ROCm EP append is wrapped in try/catch (Exception) inside
-           ConfiguredSessionOptions, and any failure (including symbol-resolution or
-           ABI errors) triggers CPU fallback.
-       Tracking item: align both versions once a 1.24.x-compatible
-       InferenceEngine.ROCm.Runtime.linux-x64 package is published. -->
+       The MIGraphX EP replaced the deprecated ROCm EP in ORT v1.24.1. The native package
+       version now matches the base Microsoft.ML.OnnxRuntime managed bindings (both 1.24.1). -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.19.2-dev.28" />
+    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1-dev.33" />
   </ItemGroup>
   <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
        No separate NuGet package exists for CoreML acceleration. -->
@@ -145,38 +137,15 @@
           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)libonnxruntime_providers_shared.dll.so"
           ContinueOnError="true" />
-    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)libonnxruntime_providers_rocm.dll.so"
-          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_migraphx.so   $(OutDir)libonnxruntime_providers_migraphx.dll.so"
+           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime.so            $(OutDir)onnxruntime.dll"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
     <Exec Command="ln -sf libortextensions.so          $(OutDir)ortextensions.dll"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)onnxruntime_providers_shared.dll"
-          ContinueOnError="true" />
-    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)onnxruntime_providers_rocm.dll"
-          ContinueOnError="true" />
-  </Target>
-
-  <!-- The InferenceEngine.ROCm.Runtime.linux-x64 package ships a ROCm-enabled
-       libonnxruntime.so that SIGSEGVs during its .init section on non-ROCm hosts.
-       To make the package safe to include unconditionally, restore the upstream
-       Microsoft.ML.OnnxRuntime package's CPU-only libonnxruntime.so over the
-       ROCm-enabled copy in the output dir. Run AFTER SymlinkLinuxNativeLibsForPInvoke
-       so the symlinks (libonnxruntime.dll.so, onnxruntime.dll, etc.) point to the
-       restored CPU .so. The provider .so (libonnxruntime_providers_rocm.so) is still
-       copied; the runtime check in BaseInferenceEngine decides whether to dlopen it.
-       TODO: Gate on !Exists('/dev/kfd') once a 1.24.x-compatible
-       InferenceEngine.ROCm.Runtime.linux-x64 package is published; the current
-       1.19.2-dev.28 build is ABI-incompatible and SIGSEGVs even on ROCm hosts. -->
-  <Target Name="RestoreUpstreamCpuLibOnLinux"
-          AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
-          Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PropertyGroup>
-      <_UpstreamCpuLib>$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/runtimes/linux-x64/native/libonnxruntime.so</_UpstreamCpuLib>
-    </PropertyGroup>
-    <Copy SourceFiles="$(_UpstreamCpuLib)"
-          DestinationFiles="$(OutDir)libonnxruntime.so"
-          SkipUnchangedFiles="false"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_migraphx.so   $(OutDir)onnxruntime_providers_migraphx.dll"
+           ContinueOnError="true" />
   </Target>
 </Project>
