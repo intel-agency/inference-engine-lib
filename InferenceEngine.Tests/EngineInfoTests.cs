@@ -48,7 +48,7 @@ public sealed class EngineInfoTests : IDisposable
         Assert.Empty(engine.EngineInfo.Checks);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task EngineInfo_GpuDisabled_CpuWithUserDisabledGpu()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
@@ -74,7 +74,7 @@ public sealed class EngineInfoTests : IDisposable
         Assert.Equal(CheckResult.Failed, gpuCheck.Result);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task EngineInfo_Checks_OrderedByOrderProperty()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
@@ -96,7 +96,7 @@ public sealed class EngineInfoTests : IDisposable
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task OnSessionInitialized_Callback_FiresOnceWithPopulatedInfo()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
@@ -120,7 +120,7 @@ public sealed class EngineInfoTests : IDisposable
         Assert.NotEqual(default, callbackInfo.SessionCreatedAt);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task OnSessionInitialized_Callback_Throws_EngineStillUsable()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
@@ -140,7 +140,7 @@ public sealed class EngineInfoTests : IDisposable
         Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task OnSessionInitialized_Callback_SecondLoadAsync_DoesNotFireAgain()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
