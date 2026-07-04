@@ -159,7 +159,7 @@ namespace InferenceEngine.Core
                     _pendingChecks = new List<ProviderDiagnosticCheck>();
                     _nextOrder = 0;
 
-                    InferenceProvider provider;
+                    InferenceProvider provider = InferenceProvider.Unknown;
                     InferenceFallbackReason fallback;
                     int deviceId;
 
@@ -190,6 +190,7 @@ namespace InferenceEngine.Core
                     }
                     catch (Exception ex) when (
                         _options.UseGpuAcceleration &&
+                        provider != InferenceProvider.Cpu &&
                         IsRecoverableNativeFailure(ex))
                     {
                         _logger.LogWarning(ex, "Native session initialization failed. Falling back to CPU.");
@@ -340,7 +341,7 @@ namespace InferenceEngine.Core
             if (!File.Exists("/dev/kfd"))
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("kfd.present", "/dev/kfd exists", "Provider", NextOrder(), "/dev/kfd not found"));
-                SkipRocmProviderChecks("precondition kfd.present failed", skipHsa: true, skipHip: true, skipMigraphxDlopen: true, skipMigraphxAppend: true, skipMigraphxSession: true);
+                SkipRocmProviderChecks("precondition kfd.present failed");
                 return BuildCpuFallback(InferenceFallbackReason.KfdDeviceMissing, deviceId);
             }
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("kfd.present", "/dev/kfd exists", "Provider", NextOrder()));
@@ -361,7 +362,7 @@ namespace InferenceEngine.Core
             if (!hsaLoaded)
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), hsaError ?? "NativeLibrary.TryLoad returned false"));
-                SkipRocmProviderChecks("precondition hsa.dlopen failed", skipHsa: false, skipHip: true, skipMigraphxDlopen: true, skipMigraphxAppend: true, skipMigraphxSession: true);
+                SkipRocmProviderChecks("precondition hsa.dlopen failed", skipHsa: false);
                 return BuildCpuFallback(InferenceFallbackReason.HsaRuntimeUnloadable, deviceId);
             }
             if (hsaHandle != IntPtr.Zero) NativeLibrary.Free(hsaHandle);
@@ -386,7 +387,7 @@ namespace InferenceEngine.Core
                     hipError ?? "libamdhip64.so.7 not found. HIP runtime is required for MIGraphX GPU acceleration. " +
                     "Install: sudo apt install hip-runtime-amd (from AMD ROCm repository). " +
                     "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
-                SkipRocmProviderChecks("precondition hip.dlopen failed", skipHsa: false, skipHip: false, skipMigraphxDlopen: true, skipMigraphxAppend: true, skipMigraphxSession: true);
+                SkipRocmProviderChecks("precondition hip.dlopen failed", skipHsa: false, skipHip: false);
                 return BuildCpuFallback(InferenceFallbackReason.HipRuntimeMissing, deviceId);
             }
             if (hipHandle != IntPtr.Zero) NativeLibrary.Free(hipHandle);
@@ -411,7 +412,7 @@ namespace InferenceEngine.Core
                     mgxError ?? "libmigraphx_c.so.3 not found. MIGraphX runtime is required for GPU-accelerated inference. " +
                     "Install: sudo apt install migraphx (from AMD ROCm repository). " +
                     "See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"));
-                SkipRocmProviderChecks("precondition migraphx.dlopen failed", skipHsa: false, skipHip: false, skipMigraphxDlopen: false, skipMigraphxAppend: true, skipMigraphxSession: true);
+                SkipRocmProviderChecks("precondition migraphx.dlopen failed", skipHsa: false, skipHip: false, skipMigraphxDlopen: false);
                 return BuildCpuFallback(InferenceFallbackReason.MIGraphXRuntimeMissing, deviceId);
             }
             if (mgxHandle != IntPtr.Zero) NativeLibrary.Free(mgxHandle);
