@@ -9,17 +9,20 @@
 ## Source code paths
 
 - `InferenceEngine.Core/IInferenceEngine.cs` defines the generic inference contract.
-- `InferenceEngine.Core/BaseInferenceEngine.cs` implements load, provider selection, warmup, run, and disposal lifecycle.
-- `InferenceEngine.Core/InferenceEngineOptions.cs` defines runtime options for model path and acceleration behavior.
-- `InferenceEngine.Core/Examples/FaceDetectionEngine.cs` implements image preprocessing, output decoding, coordinate handling, and NMS.
-- `InferenceEngine.Tests/*.cs` covers unit, algorithm, and integration scenarios.
+- `InferenceEngine.Core/BaseInferenceEngine.cs` implements load, provider selection (Linux→MIGraphX / Windows→DirectML / macOS→CoreML with CPU fallback), the diagnostics check trail, warmup, run, and disposal lifecycle.
+- `InferenceEngine.Core/InferenceEngineOptions.cs` defines runtime options including `UseGpuAcceleration`, `DeviceId`, `WarmupOnLoad`, and the `OnSessionInitialized` callback.
+- `InferenceEngine.Core/Diagnostics/` holds the public diagnostics types: `InferenceProvider`, `InferenceFallbackReason`, `CheckResult`, `HostPlatform`/`HostPlatformDetector`, `InferenceEngineInfo`, `ProviderDiagnosticCheck`.
+- `InferenceEngine.Core/ModelProviders/` holds `IModelProvider`, `LocalModelProvider`, `DownloadingModelProvider`, and `ModelRegistry` (loads URLs from `models.json`).
+- `InferenceEngine.Examples/FaceDetectionEngine.cs` implements image preprocessing, output decoding, coordinate handling, and NMS.
+- `InferenceEngine.Tests/*.cs` covers unit, algorithm, provider, and integration scenarios (use `Xunit.SkippableFact` for environment-specific tests).
 
 ## Key technical decisions
 
 - Use ONNX Runtime as the common inference backend.
 - Expose a generic interface to support multiple input-output type pairs.
 - Keep preprocessing and postprocessing abstract so domain engines own data transformation logic.
-- Use runtime OS detection to select DirectML on Windows, CoreML on macOS, and CPU fallback elsewhere.
+- Provider selection is auto-detected by platform: DirectML on Windows, CoreML on macOS, MIGraphX on Linux x64 (with graceful CPU fallback). The deprecated ROCm EP was replaced by MIGraphX in ORT 1.24.1.
+- A structured diagnostics trail (`InferenceEngineInfo` + ordered `ProviderDiagnosticCheck` list) captures every pass/fail/skip during provider selection, surfaced via `BaseInferenceEngine.EngineInfo` and the `OnSessionInitialized` callback.
 
 ## Design patterns in use
 
