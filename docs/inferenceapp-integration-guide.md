@@ -203,6 +203,82 @@ See [AGENTS.md](../AGENTS.md) for the full custom engine checklist.
 
 ---
 
+## Diagnostics
+
+`BaseInferenceEngine<TInput, TOutput>` exposes an `EngineInfo` property of type
+`InferenceEngineInfo` (in `InferenceEngine.Core.Diagnostics`) after `LoadAsync`
+completes. This immutable snapshot contains the resolved execution provider,
+platform, and an ordered diagnostic trail explaining *why* a particular provider
+was selected — or why the engine fell back to CPU.
+
+### Reading EngineInfo
+
+```csharp
+using InferenceEngine.Core;
+using InferenceEngine.Core.Diagnostics;
+
+await engine.LoadAsync();
+
+InferenceEngineInfo info = engine.EngineInfo;
+Console.WriteLine($"Provider:  {info.Provider}");
+Console.WriteLine($"Platform:  {info.Platform}");
+Console.WriteLine($"Fallback:  {info.IsFallback} (reason: {info.FallbackReason})");
+
+foreach (var check in info.Checks)
+{
+    Console.WriteLine($"  [{check.Order}] {check.Name,-25} {check.Result,-8} {check.Detail ?? ""}");
+}
+```
+
+**Example output on Linux x64 with ROCm:**
+
+```
+Provider:  Rocm
+Platform:  LinuxX64
+Fallback:  False (reason: None)
+  [0] gpu.user-enabled            Passed
+  [1] rid.platform                Passed
+  [2] kfd.present                 Passed
+  [3] hsa.dlopen                  Passed
+  [4] rocm.append                 Passed
+  [5] rocm.session                Passed
+```
+
+**Example output on Linux x64 without ROCm (no /dev/kfd):**
+
+```
+Provider:  Cpu
+Platform:  LinuxX64
+Fallback:  True (reason: KfdDeviceMissing)
+  [0] gpu.user-enabled            Passed
+  [1] rid.platform                Passed
+  [2] kfd.present                 Failed    /dev/kfd not found
+  [3] hsa.dlopen                  Skipped   precondition kfd.present failed
+  [4] rocm.append                 Skipped   precondition kfd.present failed
+  [5] rocm.session                Skipped   precondition kfd.present failed
+  [6] cpu.session                 Passed
+```
+
+### OnSessionInitialized Callback
+
+`InferenceEngineOptions` has an optional `OnSessionInitialized` callback that
+fires once after the session is created (including fallback paths):
+
+```csharp
+var engine = new FaceDetectionEngine(
+    new InferenceEngineOptions
+    {
+        UseGpuAcceleration = true,
+        OnSessionInitialized = info =>
+        {
+            Console.WriteLine($"Engine loaded: {info.Provider} (fallback={info.IsFallback})");
+        },
+    },
+    logger);
+```
+
+---
+
 ## Package Version Pinning Strategy
 
 | Scenario | Recommended version expression |

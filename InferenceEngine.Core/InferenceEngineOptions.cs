@@ -1,3 +1,4 @@
+using InferenceEngine.Core.Diagnostics;
 using InferenceEngine.Core.ModelProviders;
 
 namespace InferenceEngine.Core
@@ -39,5 +40,21 @@ namespace InferenceEngine.Core
         /// shader compilation/caching immediately.
         /// </summary>
         public bool WarmupOnLoad { get; set; } = true;
+
+        /// <summary>
+        /// Optional callback invoked once, on the LoadAsync thread pool thread, after the session
+        /// is created (including fallback paths). Receives the fully-populated InferenceEngineInfo.
+        /// Exceptions thrown by the callback are caught and logged as warnings; they do not
+        /// abort the engine.
+        /// <para>
+        /// Invoked at most once per LoadAsync call. If LoadAsync is called again after the engine
+        /// is already loaded, the callback does not fire.
+        /// </para>
+        /// <para>
+        /// Runs on a Task.Run thread pool thread, not the caller's synchronization context.
+        /// Consumers that touch UI state must marshal to the UI thread themselves.
+        /// </para>
+        /// </summary>
+        public Action<InferenceEngineInfo>? OnSessionInitialized { get; set; }
     }
 }
