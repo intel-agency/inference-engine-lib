@@ -36,27 +36,41 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
     internal const string Phi3ModelUrl =
         "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32/phi3-mini-4k-instruct-cpu-int4-rtn-block-32.onnx";
 
-    private readonly Tokenizer? _tokenizer;
+    private Tokenizer? _tokenizer;
 
     /// <summary>
-    /// Creates the engine and best-effort loads the Phi-3 SentencePiece tokenizer. The ONNX model
-    /// is resolved lazily during <see cref="BaseInferenceEngine{TInput, TOutput}.LoadAsync"/>.
+    /// Creates the engine. The ONNX model and tokenizer are resolved lazily during
+    /// <see cref="LoadAsync"/>.
     /// </summary>
     /// <param name="options">Engine options. GPU acceleration defaults on; pass <c>UseGpuAcceleration = false</c> for CPU.</param>
     /// <param name="logger">Optional typed logger.</param>
     public TextGenerationEngine(InferenceEngineOptions options, ILogger<TextGenerationEngine>? logger = null)
         : base(options, logger)
     {
-        try
+    }
+
+    /// <summary>
+    /// Loads the Phi-3 SentencePiece tokenizer (best-effort) and then initializes the ONNX session.
+    /// A tokenizer load failure is logged as a warning and does not abort the session load; the
+    /// first generation call will surface a clear error if a tokenizer is genuinely required.
+    /// </summary>
+    public override async Task LoadAsync()
+    {
+        if (_tokenizer == null)
         {
-            _tokenizer = TokenizerAssets.LoadPhi3TokenizerAsync(options, _logger, CancellationToken.None)
-                .GetAwaiter().GetResult();
+            try
+            {
+                _tokenizer = await TokenizerAssets.LoadPhi3TokenizerAsync(_options, _logger, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load the Phi-3 tokenizer during LoadAsync.");
+                _tokenizer = null;
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not load the Phi-3 tokenizer at construction time.");
-            _tokenizer = null;
-        }
+
+        await base.LoadAsync().ConfigureAwait(false);
     }
 
     /// <summary>The model file name used for cache keys and registry lookups.</summary>
@@ -218,8 +232,13 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         }
 
         int total = (int)span.Length;
+        if (total < vocab)
+        {
+            throw new InvalidOperationException(
+                $"Logits tensor length ({total}) is less than vocabulary size ({vocab}).");
+        }
+
         int start = total - vocab;
-        if (start < 0) start = 0;
         return span.Slice(start, vocab);
     }
 
@@ -230,24 +249,25 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         if (elementType == typeof(int))
         {
             var tensor = new DenseTensor<int>(shape);
-            FlattenCopy(tensor, list);
+            var span = tensor.Buffer.Span;
+            int count = Math.Min(span.Length, list.Length);
+            for (int i = 0; i < count; i++)
+            {
+                span[i] = list[i];
+            }
+
             return NamedOnnxValue.CreateFromTensor(name, tensor);
         }
 
         var longTensor = new DenseTensor<long>(shape);
-        FlattenCopy(longTensor, list);
-        return NamedOnnxValue.CreateFromTensor(name, longTensor);
-    }
-
-    private static void FlattenCopy<T>(DenseTensor<T> tensor, int[] source) where T : struct
-    {
-        var span = tensor.Buffer.Span;
-        int count = Math.Min(span.Length, source.Length);
-        for (int i = 0; i < count; i++)
+        var longSpan = longTensor.Buffer.Span;
+        int longCount = Math.Min(longSpan.Length, list.Length);
+        for (int i = 0; i < longCount; i++)
         {
-            // Convert.ChangeType handles int32 -> int64 widening via IConvertible.
-            span[i] = (T)Convert.ChangeType(source[i], typeof(T));
+            longSpan[i] = list[i];
         }
+
+        return NamedOnnxValue.CreateFromTensor(name, longTensor);
     }
 
     /// <summary>Carry-forward decode state for full-recompute generation.</summary>

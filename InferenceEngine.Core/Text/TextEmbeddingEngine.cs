@@ -35,29 +35,41 @@ public class TextEmbeddingEngine : BaseInferenceEngine<string, float[]>
     internal const string MiniLmModelUrl =
         "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx";
 
-    private readonly Tokenizer? _tokenizer;
+    private Tokenizer? _tokenizer;
 
     /// <summary>
-    /// Creates the engine and best-effort loads the MiniLM tokenizer. The ONNX model is resolved
-    /// lazily during <see cref="BaseInferenceEngine{TInput, TOutput}.LoadAsync"/>.
+    /// Creates the engine. The ONNX model and tokenizer are resolved lazily during
+    /// <see cref="LoadAsync"/>.
     /// </summary>
     /// <param name="options">Engine options. GPU acceleration defaults on; pass <c>UseGpuAcceleration = false</c> for CPU.</param>
     /// <param name="logger">Optional typed logger.</param>
     public TextEmbeddingEngine(InferenceEngineOptions options, ILogger<TextEmbeddingEngine>? logger = null)
         : base(options, logger)
     {
-        try
+    }
+
+    /// <summary>
+    /// Loads the MiniLM tokenizer (best-effort) and then initializes the ONNX session. A tokenizer
+    /// load failure is logged as a warning and does not abort the session load; the first embedding
+    /// call will surface a clear error if a tokenizer is genuinely required.
+    /// </summary>
+    public override async Task LoadAsync()
+    {
+        if (_tokenizer == null)
         {
-            _tokenizer = TokenizerAssets.LoadMiniLmTokenizerAsync(options, _logger, CancellationToken.None)
-                .GetAwaiter().GetResult();
+            try
+            {
+                _tokenizer = await TokenizerAssets.LoadMiniLmTokenizerAsync(_options, _logger, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load the MiniLM tokenizer during LoadAsync.");
+                _tokenizer = null;
+            }
         }
-        catch (Exception ex)
-        {
-            // Non-fatal at construction: the engine is still usable for metadata/inspection; the
-            // first embedding call will surface a clear error if a tokenizer is genuinely required.
-            _logger.LogWarning(ex, "Could not load the MiniLM tokenizer at construction time.");
-            _tokenizer = null;
-        }
+
+        await base.LoadAsync().ConfigureAwait(false);
     }
 
     /// <summary>The model file name used for cache keys and registry lookups.</summary>
@@ -318,23 +330,24 @@ public class TextEmbeddingEngine : BaseInferenceEngine<string, float[]>
         if (elementType == typeof(int))
         {
             var tensor = new DenseTensor<int>(shape);
-            FlattenCopy(tensor, list);
+            var span = tensor.Buffer.Span;
+            int count = Math.Min(span.Length, list.Length);
+            for (int i = 0; i < count; i++)
+            {
+                span[i] = list[i];
+            }
+
             return NamedOnnxValue.CreateFromTensor(name, tensor);
         }
 
         var longTensor = new DenseTensor<long>(shape);
-        FlattenCopy(longTensor, list);
-        return NamedOnnxValue.CreateFromTensor(name, longTensor);
-    }
-
-    private static void FlattenCopy<T>(DenseTensor<T> tensor, int[] source) where T : struct
-    {
-        var span = tensor.Buffer.Span;
-        int count = Math.Min(span.Length, source.Length);
-        for (int i = 0; i < count; i++)
+        var longSpan = longTensor.Buffer.Span;
+        int longCount = Math.Min(longSpan.Length, list.Length);
+        for (int i = 0; i < longCount; i++)
         {
-            // Convert.ChangeType handles int32 -> int64 widening via IConvertible.
-            span[i] = (T)Convert.ChangeType(source[i], typeof(T));
+            longSpan[i] = list[i];
         }
+
+        return NamedOnnxValue.CreateFromTensor(name, longTensor);
     }
 }
