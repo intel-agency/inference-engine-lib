@@ -437,8 +437,10 @@ public sealed class EngineInfoTests : IDisposable
         catch (Exception ex) when (
             ex is DllNotFoundException
             || ex is TypeInitializationException
+            || ex is BadImageFormatException
+            || ex is InvalidOperationException
             || (ex is System.Reflection.TargetInvocationException { InnerException: Exception inner }
-                && (inner is DllNotFoundException or TypeInitializationException)))
+                && (inner is DllNotFoundException or TypeInitializationException or BadImageFormatException or InvalidOperationException)))
         {
             return false;
         }

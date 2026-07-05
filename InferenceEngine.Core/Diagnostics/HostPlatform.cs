@@ -23,17 +23,32 @@ public static class HostPlatformDetector
     public static HostPlatform Current()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            return RuntimeInformation.ProcessArchitecture == Architecture.X64
-                ? HostPlatform.LinuxX64
-                : HostPlatform.LinuxArm64;
+        {
+            return RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X64 => HostPlatform.LinuxX64,
+                Architecture.Arm64 => HostPlatform.LinuxArm64,
+                _ => HostPlatform.Unknown,
+            };
+        }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            return RuntimeInformation.ProcessArchitecture == Architecture.X64
-                ? HostPlatform.OSX64
-                : HostPlatform.OSXArm64;
+        {
+            return RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X64 => HostPlatform.OSX64,
+                Architecture.Arm64 => HostPlatform.OSXArm64,
+                _ => HostPlatform.Unknown,
+            };
+        }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return RuntimeInformation.ProcessArchitecture == Architecture.X64
-                ? HostPlatform.WinX64
-                : HostPlatform.WinArm64;
+        {
+            return RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X64 => HostPlatform.WinX64,
+                Architecture.Arm64 => HostPlatform.WinArm64,
+                _ => HostPlatform.Unknown,
+            };
+        }
         return HostPlatform.Unknown;
     }
 }

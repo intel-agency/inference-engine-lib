@@ -574,8 +574,7 @@ namespace InferenceEngine.Core
 
         private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider)
         {
-            if (provider == InferenceProvider.MIGraphX)
-                return ImmutableDictionary<string, string>.Empty;
+            _ = provider;
             return ImmutableDictionary<string, string>.Empty;
         }
 
