@@ -192,7 +192,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
             {
                 if (_toWorker is not null && _process is not null && !_process.HasExited)
                 {
-                    try { WorkerFrame.WriteAsync(_toWorker, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None).GetAwaiter().GetResult(); }
+                    try { WorkerFrame.Write(_toWorker, new WorkerEnvelope { Kind = "shutdown" }); }
                     catch { /* best-effort */ }
                 }
             }

@@ -74,6 +74,15 @@ internal static class WorkerFrame
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
+    public static void Write(Stream stream, WorkerEnvelope envelope)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(envelope, WorkerJson.Options);
+        var prefix = BitConverter.GetBytes(json.Length); // 4-byte little-endian
+        stream.Write(prefix, 0, prefix.Length);
+        stream.Write(json, 0, json.Length);
+        stream.Flush();
+    }
+
     private static async Task<byte[]?> ReadExactAsync(Stream stream, int count, CancellationToken ct)
     {
         var buffer = new byte[count];
