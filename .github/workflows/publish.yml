@@ -2,7 +2,7 @@ name: Publish NuGet
 
 on:
   push:
-    branches: [development, staging, release]
+    branches: [development, main, release]
     paths:
       - 'InferenceEngine.Core/**'
       - 'InferenceEngine.Examples/**'
