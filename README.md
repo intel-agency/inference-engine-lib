@@ -20,6 +20,7 @@ Hardware-accelerated ONNX inference behind a generic `IInferenceEngine<TInput, T
 - [Hardware Acceleration](#hardware-acceleration)
 - [Examples](#examples)
 - [Streaming inference](#streaming-inference)
+- [Text inference](#text-inference)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [CI/CD](#cicd)
@@ -249,6 +250,37 @@ consumers need no changes. `StreamingOptions` controls `MaxSteps`, `EosTokenIds`
 > is a documented skeleton showing prefill/decode tensor assembly, KV-cache carry-back, sampling, and
 > EOS detection. Tokenization and the ONNX model are consumer concerns — see the streaming design
 > spec at [`plan_docs/inference-engine-streaming-upstream-spec.md`](plan_docs/inference-engine-streaming-upstream-spec.md).
+
+## Text inference
+
+`InferenceEngine.Core.Text` ships string-in/string-out engines that own tokenization and model/tokenizer
+asset fetching, so consumers get high-level APIs with no tokenizer code of their own. Tokenization is
+backed by `Microsoft.ML.Tokenizers`.
+
+- **`TextEmbeddingEngine`** — all-MiniLM-L6-v2 embeddings (BERT WordPiece tokenizer; masked-mean-pool
+  + L2-normalize).
+- **`TextGenerationEngine`** — Phi-3-mini-4k-instruct streaming text generation (SentencePiece
+  tokenizer; full-recompute-per-step decode).
+
+```csharp
+using InferenceEngine.Core;
+using InferenceEngine.Core.Text;
+
+var options = new InferenceEngineOptions { UseGpuAcceleration = false };
+
+await using var embedder = new TextEmbeddingEngine(options);
+await embedder.LoadAsync();
+float[] emb = await embedder.PredictAsync("text");
+
+await using var generator = new TextGenerationEngine(options);
+await foreach (string chunk in generator.PredictStreamingAsync("What is 2 + 2?"))
+    Console.Write(chunk);
+```
+
+> **Note:** the Phi-3 cpu-int4 export is split across a `.onnx` and a `.onnx.data` external-data file;
+> point `InferenceEngineOptions.ModelPath` at a complete local bundle. See
+> [`docs/text-engines-guide.md`](docs/text-engines-guide.md) for the full-recompute decode caveat and
+> asset-fetch details.
 
 ## Configuration
 
