@@ -3,15 +3,27 @@
 ## Overview
 
 This guide covers enabling GPU hardware acceleration for ONNX Runtime inference on
-Linux x64 hosts that have an AMD GPU installed, using AMD's ROCm execution provider.
-The library auto-detects ROCm at process start and falls back to CPU silently on
-hosts where the kernel fusion driver, the HSA userspace runtime, or the
-`libonnxruntime_providers_rocm.so` provider plugin is missing. The same auto-fallback
-shape is used on Windows (DirectML) and macOS (CoreML) — a developer that ships a
-cross-platform agent does not need to fork their engine code per OS.
+Linux x64 hosts that have an AMD GPU installed, using AMD's **MIGraphX** execution
+provider. (The older ROCm execution provider is **deprecated and removed as of ONNX
+Runtime 1.24.1**; MIGraphX is its successor and is what this library uses.) The
+library auto-detects the ROCm/MIGraphX stack at engine load and records a granular,
+**ordered diagnostic trail** (`InferenceEngineInfo.Checks`) covering every step of
+provider selection — `/dev/kfd`, the HSA userspace runtime, the HIP runtime
+(`libamdhip64.so`), the MIGraphX runtime (`libmigraphx_c.so`), provider append, and
+session construction. On any host where a required layer is missing, the engine falls
+back to CPU and reports a precise `InferenceFallbackReason` (e.g.
+`HipRuntimeMissing`, `MIGraphXRuntimeMissing`) instead of failing. The same
+auto-fallback shape is used on Windows (DirectML) and macOS (CoreML) — a developer
+that ships a cross-platform agent does not need to fork their engine code per OS.
 
-For the design rationale and the full set of native-library fixes that made the
-runtime check work correctly on Linux, see
+> **Verify in one command.** InferenceApp ships a `--diag inference` subcommand that
+> loads both engines and prints the selected provider, the fallback reason, and the
+> full check trail. See
+> [Verifying GPU Acceleration](#verifying-gpu-acceleration) below. The library exposes
+> the same data programmatically via `BaseInferenceEngine.EngineInfo` and the
+> `InferenceEngineOptions.OnSessionInitialized` callback.
+
+For the design rationale behind the native-library plumbing, see
 [`docs/Review___ONNX_Runtime_Missing_Native_RESOLUTION.md`](./Review___ONNX_Runtime_Missing_Native_RESOLUTION.md).
 
 ---
@@ -60,26 +72,31 @@ using CPU provider") and the engine runs CPU-only with no functional regression.
 
 ### ROCm Userspace Packages
 
-The minimum set of userspace packages the library's runtime check actually needs is
-narrow:
+The MIGraphX execution provider needs a narrow set of userspace libraries. The
+library's provider-selection probe loads each in order and reports a granular
+`InferenceFallbackReason` for the first one that is missing:
 
-- `libhsa-runtime64.so` (provided by `hsa-rocr-dev` or distro equivalent). This is
-  the single library the probe in `BaseInferenceEngine.IsRocmRuntimeUsable()` calls
-  `NativeLibrary.Load` against.
-- `libhsa-runtime64.so.1` (the SONAME link to the above) in the dynamic linker's
-  search path, i.e. discoverable via `ldconfig` or `LD_LIBRARY_PATH`.
-- For actual GPU work (not just the probe), the engine will also load
-  `libonnxruntime_providers_rocm.so` and that provider transitively needs
-  `libhsa-runtime64.so`, `libamdhip64.so`, `libmiopen.so`, and `librocblas.so` at
-  the same paths. These are pulled in by the larger `rocm` meta-packages and are
-  not individually required at the probe stage.
+- `libhsa-runtime64.so` (the HSA userspace runtime) — provided by `hsa-rocr-dev` /
+  `hsa-runtime64` (distro-dependent).
+- `libamdhip64.so.7` (**HIP 7.x** — the C/HIP host runtime). This is the single most
+  common point of failure on Debian-derived hosts: Debian 13 ships **HIP 5.7**
+  (`libamdhip64.so.5`), which is **ABI-incompatible** with the MIGraphX-enabled
+  `libonnxruntime.so` the library ships (built against HIP 7.x). Installing Debian's
+  `libamdhip64-5` package is **not** sufficient and will report `HipRuntimeMissing`.
+  **Do not** symlink `.so.5` → `.so.7` — that produces a hard process abort
+  (`LLVM ERROR: Option '…' registered more than once`) because both libs embed
+  conflicting LLVM command-line option tables.
+- `libmigraphx_c.so.3` (the MIGraphX C API) — provided by the `migraphx` package.
 
-Canonical install method: AMD's `amdgpu-install` script. It detects the running
-distro and registers AMD's package repositories with the right GPG keys, then
-installs a coherent set of ROCm packages at a known-good version. Distro packages
-(e.g. Debian's `rocm-hip-sdk`, Arch's `rocm-hip-sdk`) are usable but lag the AMD
-release by weeks to months; they are fine for development, less so for production
-where you want a specific ROCm version pinned.
+The two runtime packages that satisfy all of the above are:
+
+```bash
+sudo apt install hip-runtime-amd migraphx   # from the AMD ROCm apt repo
+```
+
+These come from AMD's `amdgpu-install` repository (see
+[Installing ROCm](#installing-rocm) below); the distro-packaged equivalents lag the
+required version and are only suitable for development, not the ABI MIGraphX needs.
 
 Environment variables that frequently need to be set when running the application:
 
@@ -87,7 +104,7 @@ Environment variables that frequently need to be set when running the applicatio
   libraries in `/opt/rocm/lib`, some only in `/opt/rocm/lib64`; setting both is
   harmless and covers the union). Modern `.deb`/`.rpm` installs register
   `/etc/ld.so.conf.d/rocm.conf` and run `ldconfig` automatically, so this is usually
-  a no-op but is the first thing to check if the runtime probe fails.
+  a no-op but is the first thing to check if the probe fails.
 - `HSA_OVERRIDE_GFX_VERSION=<gfx-version>` — for older or unsupported GPU families
   that do not have native codepaths in the installed ROCm. Common values:
   - `HSA_OVERRIDE_GFX_VERSION=10.3.0` for RDNA 1 (RX 5000 series, e.g. Navi 10).
@@ -107,28 +124,35 @@ edits to `.csproj` files or environment variables required at build time. The
 relevant pieces, for context:
 
 - The `InferenceEngine.ROCm.Runtime.linux-x64` NuGet package (currently pinned at
-  `1.19.2-dev.28`) is referenced unconditionally on `linux-x64` builds. It ships a
-  ROCm-enabled `libonnxruntime.so` plus the
-  `libonnxruntime_providers_rocm.so` provider plugin.
-- A post-Build MSBuild target named `RestoreUpstreamCpuLibOnLinux` runs after the
-  NuGet restore and copies the upstream `Microsoft.ML.OnnxRuntime` package's
-  CPU-only `libonnxruntime.so` over the ROCm-enabled one in the output directory.
-  This means the `.so` that the P/Invoke layer actually loads on every Linux x64
-  build is the safe, CPU-only one; the ROCm provider `.so` is still in the output
-  dir and gets loaded on demand at runtime.
-- The .NET 10 P/Invoke search algorithm on Linux probes for `libonnxruntime.dll.so`,
-  `onnxruntime.dll.so`, `libonnxruntime.dll`, and `onnxruntime.dll` (in that order).
-  It does **not** probe for `libonnxruntime.so` (the file the package actually
-  ships). A second post-Build target named `SymlinkLinuxNativeLibsForPInvoke`
-  creates the required symlinks so the P/Invoke name resolution finds the
-  library on disk.
-- The runtime check (`BaseInferenceEngine.IsRocmRuntimeUsable()`) is the
-  decision point. It does two things in order:
-  1. Verifies that `/dev/kfd` exists on the filesystem.
-  2. Calls `NativeLibrary.Load("libhsa-runtime64.so", ...)` to confirm the HSA
-     userspace runtime is resolvable.
-  If both succeed, the ROCm execution provider is appended to the session
-  options. If either fails, the engine logs at info level and falls back to CPU.
+  **`1.24.1.36`**) is referenced on `linux-x64` builds. It ships a single
+  **MIGraphX-enabled** `libonnxruntime.so` — unlike the deprecated ROCm EP, MIGraphX
+  is compiled into the core ORT shared library, so there is no separate
+  `libonnxruntime_providers_*.so` plugin to locate.
+- A post-Build MSBuild target (`RestoreUpstreamCpuLibOnLinux`) and a P/Invoke
+  symlink target (`SymlinkLinuxNativeLibsForPInvoke`) ensure the right native
+  library is resolvable at runtime. (The full rationale is in the
+  `Review___…_RESOLUTION.md` doc linked above.)
+- Provider selection lives in `BaseInferenceEngine.TryRocmBranch()` (Linux x64). It
+  runs an **ordered diagnostic trail**, appending a `ProviderDiagnosticCheck`
+  (Pass/Fail/Skip) at each step:
+  1. `gpu.user-enabled` — `UseGpuAcceleration` is on.
+  2. `rid.platform` — host is Linux x64.
+  3. `kfd.present` — `/dev/kfd` exists.
+  4. `hsa.dlopen` — `libhsa-runtime64.so` loads.
+  5. `hip.dlopen` — `libamdhip64.so.7` loads (the most common failure on Debian).
+  6. `migraphx.dlopen` — `libmigraphx_c.so.3` loads.
+  7. `migraphx.append` — `AppendExecutionProvider_MIGraphX` succeeds.
+  8. `migraphx.session` — the GPU `InferenceSession` constructs.
+  The first failure (or a skipped precondition) ends the GPU attempt; the engine
+  then builds a CPU-only session and appends `cpu.fallback-options` /
+  `cpu.fallback-session` checks. The whole trail is exposed on
+  `BaseInferenceEngine.EngineInfo` (provider, device id, `IsFallback`,
+  `FallbackReason`, and the ordered `Checks` list) and delivered via the
+  `InferenceEngineOptions.OnSessionInitialized` callback. The possible
+  `InferenceFallbackReason` values on Linux are `KfdDeviceMissing`,
+  `HsaRuntimeUnloadable`, `HipRuntimeMissing`, `MIGraphXRuntimeMissing`, and
+  `NativeLibraryLoadFailed` (the last is a catch-all for a recoverable failure
+  during GPU session construction).
 
 For the full timeline of the native-library fixes (the original 5 review comments
 plus the 4 additional root-cause fixes for upstream package quirks, SkiaSharp
@@ -138,6 +162,63 @@ split packages, and the SIGSEGV-on-non-ROCm-hosts hazard), see
 ---
 
 ## Verifying Your System
+
+### Verifying GPU Acceleration
+
+The fastest end-to-end check is the diagnostics API. In the consumer app:
+
+```bash
+# InferenceApp: loads both engines and prints provider + fallback + check trail
+InferenceApp.UI --diag inference
+```
+
+On a host that is **not yet GPU-ready** (e.g. a stock Debian box that only ships the
+ABI-incompatible `libamdhip64.so.5`), the output pinpoints the exact missing layer
+and its install command:
+
+```text
+=== Detection (YOLO) ===
+  Platform : LinuxX64
+  Provider : Cpu
+  GPU req  : True
+  Fallback : HipRuntimeMissing
+  Checks   :
+    PASS [0] gpu.user-enabled: UseGpuAcceleration is enabled
+    PASS [1] rid.platform: Host is Linux x64
+    PASS [2] kfd.present: /dev/kfd exists
+    PASS [3] hsa.dlopen: libhsa-runtime64.so is loadable
+    FAIL [4] hip.dlopen: libamdhip64.so.7 not found. HIP runtime is required for
+            MIGraphX GPU acceleration. Install: sudo apt install hip-runtime-amd
+            (from AMD ROCm repository). ...
+    SKIP [5] migraphx.dlopen: precondition hip.dlopen failed
+    SKIP [6] migraphx.append:    precondition hip.dlopen failed
+    SKIP [7] migraphx.session:   precondition hip.dlopen failed
+    PASS [8] cpu.fallback-options: CreateCpuOnlySessionOptions() succeeded
+    PASS [9] cpu.fallback-session: CPU InferenceSession constructed
+OK: at least one engine loaded.
+```
+
+Once `hip-runtime-amd` and `migraphx` are installed (see
+[Installing ROCm](#installing-rocm)), the same command reports `Provider: MIGraphX`
+with all `hip.*` / `migraphx.*` checks at `PASS` and no fallback. The same data is
+available programmatically via `engine.EngineInfo` (in any engine deriving from
+`BaseInferenceEngine`) and the `InferenceEngineOptions.OnSessionInitialized` callback.
+
+The per-check meaning, for interpreting the trail:
+
+| Check | Meaning |
+|---|---|
+| `kfd.present` | `/dev/kfd` exists and is accessible. |
+| `hsa.dlopen` | `libhsa-runtime64.so` loads. |
+| `hip.dlopen` | `libamdhip64.so.7` (HIP 7.x) loads. |
+| `migraphx.dlopen` | `libmigraphx_c.so.3` loads. |
+| `migraphx.append` | `AppendExecutionProvider_MIGraphX` succeeded. |
+| `migraphx.session` | The GPU `InferenceSession` constructed. |
+| `cpu.fallback-*` | Appended only on fallback; confirms CPU still works. |
+
+---
+
+### System-level checks
 
 Run the steps below in order on the target host. Each step has a single command, an
 expected output hint, and a one-line failure mode description. The consolidated
@@ -234,8 +315,8 @@ built without `CONFIG_DRM_AMDGPU` set to `=y` or `=m`.
 
 ### Step 5 — ROCm HSA runtime library resolvable
 
-The runtime check in `BaseInferenceEngine.IsRocmRuntimeUsable()` calls
-`NativeLibrary.Load("libhsa-runtime64.so", ...)`. The library must be
+The provider-selection probe (`hsa.dlopen` in the diagnostics trail) calls
+`NativeLibrary.TryLoad("libhsa-runtime64.so", ...)`. The library must be
 discoverable by the dynamic linker.
 
 ```bash
@@ -293,30 +374,32 @@ engine; the log line distinguishes a successful ROCm path from a CPU fallback.
 dotnet build --runtime linux-x64 InferenceEngine.Core/InferenceEngine.Core.csproj
 ```
 
-Then in a small C# test program, or via the example `FaceDetectionEngine`:
+Then verify the library's own provider selection via the diagnostics API (or, in
+InferenceApp, `--diag inference`). A successful MIGraphX path reports:
 
 ```text
-Loading...
-Platform detected: Linux x64. ROCm runtime detected. Attempting ROCm provider...
-Model loaded. Primary Input: images
-Warmup complete.
-IsRocmSessionActive = True
+Provider : MIGraphX (device 0)
+GPU req  : True
+Fallback : no
+Checks   :
+    PASS [0] gpu.user-enabled
+    PASS [1] rid.platform
+    PASS [2] kfd.present
+    PASS [3] hsa.dlopen
+    PASS [4] hip.dlopen
+    PASS [5] migraphx.dlopen
+    PASS [6] migraphx.append
+    PASS [7] migraphx.session
 ```
 
-A successful ROCm path produces the line **"ROCm runtime detected. Attempting
-ROCm provider..."** followed by `IsRocmSessionActive == True`.
+i.e. `EngineInfo.Provider == InferenceProvider.MIGraphX` with no fallback. A
+fallback path (which is **not an error** — it is by design) reports `Provider: Cpu`
+with `IsFallback=true` and a `FallbackReason` (e.g. `HipRuntimeMissing`) naming the
+first missing layer, plus `PASS` `cpu.fallback-*` checks confirming CPU still works.
 
-A fallback path (which is **not an error** — it is by design) produces:
-
-```text
-Platform detected: Linux x64. ROCm runtime not available on this host — using CPU provider.
-Model loaded. Primary Input: images
-IsRocmSessionActive = False
-```
-
-If you see the fallback line, re-run Steps 3-6 and fix the first one that
-fails. The library will not re-attempt ROCm on a later call — the decision is
-made once at `LoadAsync` time.
+If you see a fallback, read the first `FAIL` check in the trail (e.g. `hip.dlopen`)
+and re-run the matching system-level step above to fix it. The library decides the
+provider once at `LoadAsync` time and will not re-attempt GPU on a later call.
 
 ### Consolidated check script
 
@@ -428,6 +511,16 @@ prerequisite; refer to the per-step "Failure mode" notes above to fix it.
 ---
 
 ## Installing ROCm
+
+> **What MIGraphX actually needs:** just `hip-runtime-amd` (provides
+> `libamdhip64.so.7`) and `migraphx` (provides `libmigraphx_c.so.3`). The full
+> `--usecase=rocm` install below pulls these in (plus much more — MIOpen, rocBLAS,
+> etc.) and is the safe choice; for a minimal install run
+> `sudo apt install hip-runtime-amd migraphx` once the AMD ROCm apt repo is
+> registered. **Do not** rely on Debian's `libamdhip64-5` (HIP 5.7) — it is
+> ABI-incompatible with the MIGraphX-enabled `libonnxruntime.so` (HIP 7.x) and will
+> report `HipRuntimeMissing` (or, if forced, abort with an LLVM option-collision
+> error). Never symlink `.so.5` → `.so.7`.
 
 The instructions below cover the four distributions in active use. For everything
 else, defer to AMD's upstream quick-start guide at
@@ -712,16 +805,16 @@ GPU-attempting.
 The runtime behavior for each combination of `UseGpuAcceleration` and host
 capability:
 
-| `UseGpuAcceleration` | Host has `/dev/kfd` + `libhsa-runtime64.so` | Behavior | `IsRocmSessionActive` |
+| `UseGpuAcceleration` | Host ROCm/MIGraphX stack | Behavior | `EngineInfo.Provider` |
 |---|---|---|---|
-| `true` | Yes | ROCm execution provider appended | `true` |
-| `true` | No | Info log + CPU fallback | `false` |
-| `false` | (not checked) | Unconditional CPU | `false` |
-| `true` | Yes, but `AppendExecutionProvider_ROCm` throws | Warning log + CPU fallback (caught in the `ConfiguredSessionOptions` try block) | `false` |
-| `true` | Yes, but a downstream native lib (`libamdhip64.so`, `libmiopen.so`, `librocblas.so`) is missing | `OnnxRuntimeException` at session creation; outer catch with `IsRecoverableNativeFailure` may catch it and fall back to CPU, depending on the exception type. If uncaught, it propagates to the `LogError` handler. | `false` if recovered; session creation throws otherwise |
+| `true` | `/dev/kfd` + HSA + HIP 7.x + MIGraphX all present | MIGraphX execution provider appended | `MIGraphX` |
+| `true` | A layer is missing (e.g. `libamdhip64.so.7`) | CPU fallback + a precise `FallbackReason` | `Cpu` (`IsFallback=true`) |
+| `false` | (not checked) | Unconditional CPU | `Cpu` |
 
-The `IsRocmSessionActive` flag is the single source of truth at runtime.
-Read it after `LoadAsync` returns to confirm which path was actually used.
+`EngineInfo.Provider` (with `EngineInfo.IsFallback` and `EngineInfo.FallbackReason`)
+is the single source of truth at runtime. Read it after `LoadAsync` returns — or
+receive it asynchronously via the `InferenceEngineOptions.OnSessionInitialized`
+callback.
 
 ### Confirming the EP at runtime
 
@@ -729,34 +822,35 @@ Read it after `LoadAsync` returns to confirm which path was actually used.
 var engine = new MyEngine(options, logger);
 await engine.LoadAsync();
 
-if (engine.IsRocmSessionActive)
+if (engine.EngineInfo.Provider == InferenceProvider.MIGraphX)
 {
-    Console.WriteLine("ROCm EP active — running on AMD GPU.");
+    Console.WriteLine($"MIGraphX EP active on device {engine.EngineInfo.DeviceId}.");
 }
 else
 {
-    Console.WriteLine("CPU fallback — ROCm not available on this host.");
+    Console.WriteLine($"CPU fallback — reason: {engine.EngineInfo.FallbackReason}.");
 }
 ```
 
-This is also the pattern the test suite uses — see
-[`FaceDetectionEngineTests.PredictAsync_OnLinuxX64WithAmdGpu_ShouldUseRocmProvider`](../InferenceEngine.Tests/FaceDetectionEngineTests.cs)
-for the canonical example with full skip-precondition chaining.
+For the full ordered diagnostic trail (every Pass/Fail/Skip during provider
+selection), iterate `engine.EngineInfo.Checks`. This is the pattern the test suite
+asserts on — see `EngineInfo_LinuxX64WithKfd_*` in
+[`EngineInfoTests.cs`](../InferenceEngine.Tests/EngineInfoTests.cs).
 
 ### Why the engine never throws on a missing GPU
 
 A common concern: "if my CI runs on a non-ROCm host, will the engine crash?"
-No. The runtime check in `IsRocmRuntimeUsable()` returns `false` on any
-failure (missing `/dev/kfd`, unresolvable HSA runtime, or any exception
-during the `NativeLibrary.Load` probe), and the engine falls back to CPU.
-The test in
-[`FaceDetectionEngineTests.cs`](../InferenceEngine.Tests/FaceDetectionEngineTests.cs)
-uses `Skip.IfNot(IsRocmRuntimeUsableOnHost(), ...)` to skip cleanly on
-non-ROCm hosts rather than failing.
+No. The provider-selection probe records the first failing check (missing
+`/dev/kfd`, unresolvable HSA/HIP/MIGraphX runtime, or any exception during a
+`NativeLibrary.TryLoad`) and falls back to CPU with a precise
+`InferenceFallbackReason` — it never throws. The test suite uses
+`Xunit.SkippableFact` with a host-capability skip precondition to skip cleanly on
+non-GPU hosts rather than failing — see the `EngineInfo_LinuxX64WithKfd_*` tests in
+[`EngineInfoTests.cs`](../InferenceEngine.Tests/EngineInfoTests.cs).
 
-If you want a hard failure on a non-ROCm host (e.g. for a production
-deployment that requires GPU), assert on `IsRocmSessionActive` after
-`LoadAsync` and throw if it is `false`.
+If you want a hard failure on a non-GPU host (e.g. for a production deployment that
+requires GPU), assert on `EngineInfo.Provider` after `LoadAsync` and throw if it is
+`Cpu`.
 
 ---
 
@@ -769,11 +863,11 @@ and the fix. Issues are ordered from "most common on first-time setup" to
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Engine logs `ROCm runtime not available on this host — using CPU provider`; `IsRocmSessionActive == false` | Either `/dev/kfd` is missing, or `libhsa-runtime64.so` is not in the dynamic linker's search path. The two checks in `IsRocmRuntimeUsable()` are independent — you can have one without the other. | (1) `ls -la /dev/kfd` — if missing, re-check the `amdgpu` module is loaded (`lsmod \| grep amdgpu`) and the kernel is recent. (2) `ldconfig -p \| grep libhsa-runtime64` — if empty, install `hsa-rocr-dev` (or distro equivalent) and run `echo /opt/rocm/lib \| sudo tee /etc/ld.so.conf.d/rocm.conf && sudo ldconfig`. (3) As a last resort, set `LD_LIBRARY_PATH=/opt/rocm/lib` in the application environment. |
+| Engine logs `ROCm runtime not available on this host — using CPU provider`; `EngineInfo.Provider == Cpu` | Either `/dev/kfd` is missing, or `libhsa-runtime64.so` is not in the dynamic linker's search path. The two checks in `IsRocmRuntimeUsable()` are independent — you can have one without the other. | (1) `ls -la /dev/kfd` — if missing, re-check the `amdgpu` module is loaded (`lsmod \| grep amdgpu`) and the kernel is recent. (2) `ldconfig -p \| grep libhsa-runtime64` — if empty, install `hsa-rocr-dev` (or distro equivalent) and run `echo /opt/rocm/lib \| sudo tee /etc/ld.so.conf.d/rocm.conf && sudo ldconfig`. (3) As a last resort, set `LD_LIBRARY_PATH=/opt/rocm/lib` in the application environment. |
 | Engine throws `OnnxRuntimeException` (not the recoverable native-load kind) after the auto-detect passes; the message references `HSA`, `hip`, or `MIOpen` | One of the downstream ROCm libraries (`libamdhip64.so`, `libmiopen.so`, `librocblas.so`) is missing or built for a different ROCm version than the `InferenceEngine.ROCm.Runtime.linux-x64` package was compiled against. A wrong GFX version is a sub-case. | (1) `ldconfig -p \| grep -E 'libamdhip64\|libmiopen\|librocblas'` — every line should be present. (2) `rocminfo` should run cleanly and show at least one Agent. (3) If the GPU is on the ROCm support list but `rocminfo` reports "No devices found", set `HSA_OVERRIDE_GFX_VERSION=10.3.0` (for RDNA 1 / Navi 10) or the matching version for your GPU family. (4) Check `dmesg \| grep -i amdgpu` for driver-side errors. (5) The two `InferenceEngine.ROCm.Runtime.linux-x64` and the `amdgpu-install` `--usecase=rocm` packages must be a coherent version pair; mixing ROCm 6.x drivers with ROCm 5.x userspace (or vice versa) is a common source of `hipErrorNoBinaryForGPU`. |
 | `rocminfo` shows the GPU correctly, but the library reports ROCm unavailable | The `rocminfo` binary is statically linked or has `/opt/rocm/lib` baked in via its own RPATH, so it finds the HSA runtime even when `ldconfig` does not. The library, on the other hand, uses the system `dlopen` search path, which follows `LD_LIBRARY_PATH` and `ldconfig`. | Set `LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib64` in the application's environment, or persist it system-wide with the `ld.so.conf.d` snippet from Step 5 above. Restart the application to pick up the new path. |
 | Engine logs `Permission denied` opening `/dev/kfd` despite running as a non-root user | User is not in the `video` and `render` groups, or the groups exist but the user was not added (`/etc/group` shows the user is missing). This is the most common "everything is installed and it still doesn't work" symptom. | `sudo usermod -aG video,render $USER` and **log out and back in** (or `newgrp video render` in the current shell — but a full re-login is more reliable). Verify with `id $USER` — both groups should be listed. Verify device access with `ls -la /dev/kfd /dev/dri/renderD128` — the group should be `video` or `render` and the user should be a member. |
-| Engine produces correct predictions and `IsRocmSessionActive == true`, but inference latency is the same as CPU (or only marginally better) | ROCm is initialized, but MIOpen is silently falling back to CPU implementations of the conv kernels. This is common for RDNA 1 GPUs, older kernels with no native GPU codepath, or models that hit a non-fused op (e.g. a layout-unsupported `Reshape`). | (1) Set `MIOPEN_LOG_LEVEL=3` in the application environment and re-run; you will see one line per conv op identifying which algorithm was selected and whether it is `MIOpen` (GPU) or `fft/fft-direct/winograd` (CPU). (2) If most ops are CPU, set `HSA_ENABLE_SDMA=0` to force DMA paths and re-test. (3) For older GPUs, `HSA_OVERRIDE_GFX_VERSION=10.3.0` (RDNA 1) or `9.0.0` (Vega) unlocks the GPU codepaths the kernel would otherwise refuse to compile. (4) Check the ONNX model's opset — opset 13+ is recommended; very old opsets may emit `Reshape` patterns that MIOpen has no GPU kernel for. (5) `rocm-profile` or `rocprof` can attribute per-op time; if the bottleneck is a single op, profile and consider a model surgery. |
+| Engine produces correct predictions and `EngineInfo.Provider == MIGraphX`, but inference latency is the same as CPU (or only marginally better) | ROCm is initialized, but MIOpen is silently falling back to CPU implementations of the conv kernels. This is common for RDNA 1 GPUs, older kernels with no native GPU codepath, or models that hit a non-fused op (e.g. a layout-unsupported `Reshape`). | (1) Set `MIOPEN_LOG_LEVEL=3` in the application environment and re-run; you will see one line per conv op identifying which algorithm was selected and whether it is `MIOpen` (GPU) or `fft/fft-direct/winograd` (CPU). (2) If most ops are CPU, set `HSA_ENABLE_SDMA=0` to force DMA paths and re-test. (3) For older GPUs, `HSA_OVERRIDE_GFX_VERSION=10.3.0` (RDNA 1) or `9.0.0` (Vega) unlocks the GPU codepaths the kernel would otherwise refuse to compile. (4) Check the ONNX model's opset — opset 13+ is recommended; very old opsets may emit `Reshape` patterns that MIOpen has no GPU kernel for. (5) `rocm-profile` or `rocprof` can attribute per-op time; if the bottleneck is a single op, profile and consider a model surgery. |
 | The library's post-Build `RestoreUpstreamCpuLibOnLinux` target did not fire, and the published application ships the ROCm-enabled `libonnxruntime.so` (the one that SIGSEGVs on non-ROCm hosts) | The build was not invoked with `--runtime linux-x64` — the target is gated on `'$(RuntimeIdentifier)' == 'linux-x64'`. A no-RID build (`dotnet build` without `-r`) silently drops the target because `RuntimeIdentifier` is empty. Custom NuGet cache locations in CI can also break the `$(NuGetPackageRoot)microsoft.ml.onnxruntime/1.24.1/...` path the target depends on. | (1) Verify with `dotnet --info` that the RID graph is enabled (the project sets `<UseRidGraph>true</UseRidGraph>`) and that you are building with `-r linux-x64` or `--runtime linux-x64`. (2) Check the build output: `dotnet build -r linux-x64 -v:n` should show `Target "RestoreUpstreamCpuLibOnLinux"` in the `AfterTargets="Build"` chain. (3) If `NuGetPackageRoot` is non-default, the path in the target is wrong; you can override `NuGetPackageRoot` on the build command line and the target will pick it up via MSBuild property evaluation. (4) Confirm the output dir's `libonnxruntime.so` is the CPU build (run `file bin/Debug/net10.0/linux-x64/libonnxruntime.so` — it should NOT say "ROCm" in the build ID). |
 | Engine logs `DirectML failed to load` or `CoreML failed to load` on Linux | A derived engine has been written to dispatch to all three execution providers unconditionally. On Linux, only the ROCm path is reached. | Confirm `ConfiguredSessionOptions` in your engine's base class is `BaseInferenceEngine.ConfiguredSessionOptions` (i.e. you did not override it). If you must override it, preserve the platform branching — Linux x64 → ROCm (with the runtime check), Linux ARM64 → CPU, Windows → DirectML, macOS → CoreML. |
 | Application segfaults on first call to `engine.PredictAsync` (no managed exception, just process termination) | The `InferenceEngine.ROCm.Runtime.linux-x64` package's `libonnxruntime.so` is being loaded but the host has no `/dev/kfd`. This is a known issue with the dev release; the post-Build `RestoreUpstreamCpuLibOnLinux` target is meant to prevent it but only fires on `linux-x64` RID builds. | Confirm you built with `--runtime linux-x64` (not just `linux`). Confirm the output dir's `libonnxruntime.so` is the upstream CPU build, not the ROCm dev one — `sha256sum` the file and compare with the upstream package's `libonnxruntime.so` for the matching version. If you are on a no-RID build, the `RestoreUpstreamCpuLibOnLinux` target is gated off and the ROCm `.so` is in play; the SIGSEGV on non-ROCm hosts is a known limitation. |

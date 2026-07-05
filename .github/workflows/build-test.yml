@@ -49,20 +49,13 @@ jobs:
         run: dotnet build --configuration Release --no-restore
         shell: bash
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: build-artifacts-${{ matrix.os }}
-          path: |
-            InferenceEngine.Core/bin/Release/
-            InferenceEngine.Tests/bin/Release/
-            InferenceEngine.Core.IntegrationTests/bin/Release/
-          retention-days: 1
-
   # ── Stage 2: Test ─────────────────────────────────────────────────────────
   # fail-fast: false — we want all platform test results even if one platform
   # fails (distinguishes a platform-specific failure from a general one).
   # Gates on: build (all platforms must compile before any tests run).
+  # Note: test stage does its own `dotnet build` (no artifact download) to avoid
+  # the GitHub Actions artifact storage quota, which previously failed CI runs
+  # with "Artifact storage quota has been hit" on the upload step.
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -81,11 +74,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: build-artifacts-${{ matrix.os }}
-
       - name: Cache NuGet packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -98,6 +86,10 @@ jobs:
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: dotnet restore
+        shell: bash
+
+      - name: Build Release
+        run: dotnet build --configuration Release --no-restore
         shell: bash
 
       - name: Run tests with coverage
@@ -128,25 +120,3 @@ jobs:
             InferenceEngine.Tests/TestResults/
             coverage-report/
           retention-days: 30
-
-  # ── Stage 3: Persist artifacts (main branch only) ─────────────────────────
-  # Gates on: test. Long-term artifacts only saved when all tests pass on main.
-  save-artifacts:
-    name: Save Long-Term Artifacts
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Download ubuntu build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: build-artifacts-ubuntu-latest
-          path: build-output-ubuntu-latest
-
-      - name: Save long-term build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: build-output-ubuntu-latest
-          path: build-output-ubuntu-latest/
-          retention-days: 7

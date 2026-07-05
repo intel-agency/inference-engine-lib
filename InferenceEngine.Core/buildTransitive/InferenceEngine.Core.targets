@@ -1,0 +1,30 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Propagates to all CONSUMERS of the InferenceEngine.Core NuGet package (inline
+       <Target> elements in the .csproj only run when building InferenceEngine.Core itself).
+
+       On linux-x64 the vanilla Microsoft.ML.OnnxRuntime native libonnxruntime.so wins
+       NuGet's same-path native-asset resolution over the ROCm-enabled
+       InferenceEngine.ROCm.Runtime libonnxruntime.so. The vanilla CPU lib has no
+       MIGraphX entry point, so without this override consumers see:
+         "Unable to find an entry point named 'OrtSessionOptionsAppendExecutionProvider_MIGraphX'
+          in shared library 'onnxruntime.dll'"
+       and the MIGraphX EP append fails. This target copies the ROCm build (which exports
+       that symbol) over the output libonnxruntime.so. The ROCm lib is safe to load on all
+       hosts: BaseInferenceEngine falls back to CPU with a managed exception when the
+       HIP/MIGraphX runtime is absent.
+
+       The version is pinned to the InferenceEngine.ROCm.Runtime this package depends on;
+       bump it together with the PackageReference in InferenceEngine.Core.csproj. -->
+  <Target Name="ForceRocmOnnxRuntimeLibOnLinux"
+          AfterTargets="Build"
+          Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <PropertyGroup>
+      <_RocmOrtLib>$(NuGetPackageRoot)inferenceengine.rocm.runtime.linux-x64/1.24.1.36/runtimes/linux-x64/native/libonnxruntime.so</_RocmOrtLib>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_RocmOrtLib)"
+          DestinationFiles="$(OutDir)libonnxruntime.so"
+          SkipUnchangedFiles="false"
+          ContinueOnError="true"
+          Condition="Exists('$(_RocmOrtLib)')" />
+  </Target>
+</Project>

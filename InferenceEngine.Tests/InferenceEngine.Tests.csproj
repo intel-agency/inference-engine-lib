@@ -85,33 +85,15 @@
           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)libonnxruntime_providers_shared.dll.so"
           ContinueOnError="true" />
-    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)libonnxruntime_providers_rocm.dll.so"
-          ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_migraphx.so   $(OutDir)libonnxruntime_providers_migraphx.dll.so"
+           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime.so            $(OutDir)onnxruntime.dll"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
     <Exec Command="ln -sf libortextensions.so          $(OutDir)ortextensions.dll"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
     <Exec Command="ln -sf libonnxruntime_providers_shared.so $(OutDir)onnxruntime_providers_shared.dll"
-          ContinueOnError="true" />
-    <Exec Command="ln -sf libonnxruntime_providers_rocm.so   $(OutDir)onnxruntime_providers_rocm.dll"
-          ContinueOnError="true" />
-  </Target>
-
-  <!-- Mirror the Core csproj target: the InferenceEngine.ROCm.Runtime.linux-x64 package
-       (transitively pulled in by the Core project reference) ships a ROCm-enabled
-       libonnxruntime.so that SIGSEGVs on non-ROCm hosts. Restore the upstream
-       Microsoft.ML.OnnxRuntime package's CPU-only libonnxruntime.so over it so the test
-       build's output is loadable on Intel-only runners. The runtime check in
-       BaseInferenceEngine still decides whether to dlopen the ROCm provider .so. -->
-  <Target Name="RestoreUpstreamCpuLibOnLinux"
-          AfterTargets="SymlinkLinuxNativeLibsForPInvoke"
-          Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PropertyGroup>
-      <_UpstreamCpuLib>$(PkgMicrosoft_ML_OnnxRuntime)/runtimes/linux-x64/native/libonnxruntime.so</_UpstreamCpuLib>
-    </PropertyGroup>
-    <Copy SourceFiles="$(_UpstreamCpuLib)"
-          DestinationFiles="$(OutDir)libonnxruntime.so"
-          SkipUnchangedFiles="false"
-          ContinueOnError="true" />
+           ContinueOnError="true" />
+    <Exec Command="ln -sf libonnxruntime_providers_migraphx.so   $(OutDir)onnxruntime_providers_migraphx.dll"
+           ContinueOnError="true" />
   </Target>
 </Project>
