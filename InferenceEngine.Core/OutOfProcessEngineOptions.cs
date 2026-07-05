@@ -11,8 +11,9 @@ public sealed class OutOfProcessEngineOptions
     public required string WorkerExecutablePath { get; init; }
 
     /// <summary>Arguments appended after <see cref="WorkerExecutablePath"/> to enter the worker mode.
-    /// Default <c>"--worker inference"</c>; match the consumer's <c>Program.cs</c> entry point.</summary>
-    public string WorkerArguments { get; init; } = "--worker inference";
+    /// Default is <c>["--worker", "inference"]</c>; match the consumer's <c>Program.cs</c> entry point.
+    /// A list (not a single string) avoids fragility with arguments containing spaces.</summary>
+    public IReadOnlyList<string> WorkerArguments { get; init; } = new[] { "--worker", "inference" };
 
     /// <summary>Consumer-defined id identifying which engine the worker should construct.</summary>
     public string EngineId { get; init; } = string.Empty;

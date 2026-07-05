@@ -113,6 +113,20 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
 
     private void StartWorker()
     {
+        // Clean up any previously-started worker (e.g. a Load retry after a failure) BEFORE spawning
+        // a new one, to avoid leaking worker processes / GPU memory.
+        if (_process is not null)
+        {
+            try { if (!_process.HasExited) _process.Kill(); }
+            catch { /* best-effort */ }
+            _toWorker?.Dispose();
+            _fromWorker?.Dispose();
+            _process.Dispose();
+            _process = null;
+            _toWorker = null;
+            _fromWorker = null;
+        }
+
         var psi = new ProcessStartInfo(_oopOptions.WorkerExecutablePath)
         {
             UseShellExecute = false,
@@ -121,7 +135,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        foreach (var arg in _oopOptions.WorkerArguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var arg in _oopOptions.WorkerArguments)
             psi.ArgumentList.Add(arg);
         foreach (var kv in _oopOptions.WorkerEnvironment)
             psi.Environment[kv.Key] = kv.Value;
@@ -172,21 +186,37 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         if (disposing && !_disposed)
         {
             _disposed = true;
+
+            // Best-effort graceful shutdown — only when we actually have a live pipe + process.
+            try
+            {
+                if (_toWorker is not null && _process is not null && !_process.HasExited)
+                {
+                    try { WorkerFrame.WriteAsync(_toWorker, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None).GetAwaiter().GetResult(); }
+                    catch { /* best-effort */ }
+                }
+            }
+            catch { /* swallow teardown errors */ }
+
+            // Dispose the streams FIRST: closing stdin signals EOF to the worker (unblocking any
+            // pending stdout/stderr write) so WaitForExit cannot deadlock; closing stdout ends our read side.
+            _toWorker?.Dispose();
+            _fromWorker?.Dispose();
+            _toWorker = null;
+            _fromWorker = null;
+
             try
             {
                 if (_process is not null && !_process.HasExited)
                 {
-                    try { WorkerFrame.WriteAsync(_toWorker!, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None).GetAwaiter().GetResult(); }
-                    catch { /* best-effort */ }
                     if (!_process.WaitForExit(2000))
                         try { _process.Kill(); } catch { /* best-effort */ }
                 }
             }
             catch { /* swallow teardown errors */ }
 
-            _toWorker?.Dispose();
-            _fromWorker?.Dispose();
             _process?.Dispose();
+            _process = null;
         }
         base.Dispose(disposing);
     }

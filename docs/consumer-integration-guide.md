@@ -228,7 +228,7 @@ public sealed class MyOutOfProcessDetector
 | Field | Purpose |
 |---|---|
 | `WorkerExecutablePath` (required) | Absolute path to the consumer's worker executable (your own app, launched with `WorkerArguments`). |
-| `WorkerArguments` | Args to enter worker mode. Default `"--worker inference"`; match your `Program.cs`. |
+| `WorkerArguments` | Args to enter worker mode. Default `["--worker", "inference"]`; match your `Program.cs`. |
 | `EngineId` | Consumer-defined id identifying which engine the worker should construct. |
 | `WorkerEnvironment` | Env vars applied to the **worker only** (e.g. `HSA_OVERRIDE_GFX_VERSION=10.3.0`). Never applied to the host (which must stay GL-free of ROCm/comgr). |
 | `EngineOptions` | In-process engine options mirrored to the worker (`ModelPath`, `UseGpuAcceleration`, `DeviceId`, `WarmupOnLoad`). |

@@ -33,6 +33,14 @@ public static class InferenceWorkerHost
         // Redirect engine logging away from stdout (stdout is protocol-only); use stderr.
         var stdin = input ?? Console.OpenStandardInput();
         var stdout = output ?? Console.OpenStandardOutput();
+
+        // In production (no injected streams), redirect Console.Out to Console.Error so any stray
+        // Console.WriteLine from managed code or libraries cannot corrupt the stdout IPC channel.
+        // (When streams are injected — i.e. in tests — leave the console untouched.)
+        if (output is null)
+        {
+            Console.SetOut(Console.Error);
+        }
         // Keep stdout free of any stray text writes — protocol frames only.
 
         BaseInferenceEngine<TInput, TOutput>? engine = null;
