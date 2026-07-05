@@ -19,6 +19,7 @@ Hardware-accelerated ONNX inference behind a generic `IInferenceEngine<TInput, T
 - [Model Providers](#model-providers)
 - [Hardware Acceleration](#hardware-acceleration)
 - [Examples](#examples)
+- [Streaming inference](#streaming-inference)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [CI/CD](#cicd)
@@ -185,6 +186,69 @@ var detections = await engine.PredictAsync(imageBytes);
 foreach (var det in detections)
     Console.WriteLine($"{det.Label} ({det.Confidence:P0}) at [{det.X}, {det.Y}, {det.Width}, {det.Height}]");
 ```
+
+## Streaming inference
+
+For autoregressive workloads (e.g. token-by-token text generation), implement
+`BaseStreamingInferenceEngine<TInput, TOutput, TStep>`. It reuses the same ONNX session, hardware
+acceleration, model download, warmup, and disposal as `BaseInferenceEngine`, and exposes an
+`IAsyncEnumerable<TStep>` so consumers can render partial output as it is produced.
+
+```csharp
+public interface IStreamingInferenceEngine<TInput, TOutput, TStep>
+    : IInferenceEngine<TInput, TOutput>
+{
+    IAsyncEnumerable<TStep> PredictStreamingAsync(
+        TInput input,
+        StreamingOptions? options = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+### Consuming a stream
+
+```csharp
+await foreach (string chunk in engine.PredictStreamingAsync(prompt, cancellationToken: ct))
+{
+    Console.Write(chunk);   // render tokens as they arrive
+}
+```
+
+### Implementing a streaming engine
+
+Subclass `BaseStreamingInferenceEngine<TInput, TOutput, TStep>` and implement three hooks:
+
+| Hook | Responsibility |
+| --- | --- |
+| `BuildStepInputs(input, state, step)` | Assemble ONNX inputs for one forward pass — prefill (full prompt) on `step == 0`, decode (single token + carried KV cache) thereafter — and return carry-forward context. |
+| `ProcessStepOutputs(outputs, buildContext)` | Decode one pass into the streamed step, the next KV-cache state, and an EOS flag. Use `SampleNextToken` for greedy sampling and `CloneAsPastKeyValue` to carry `present_*` outputs into `past_*` inputs. |
+| `BuildFinalOutput(steps)` | Reduce the accumulated steps into the one-shot `TOutput`. |
+
+```csharp
+public class MyLlmEngine : BaseStreamingInferenceEngine<string, string, string>
+{
+    protected override string ModelName => "my-llm.onnx";
+
+    protected override (List<NamedOnnxValue> Inputs, object? BuildContext)
+        BuildStepInputs(string input, object? state, int step) { /* ... */ }
+
+    protected override (string Step, object? NextState, bool IsEos)
+        ProcessStepOutputs(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, object? buildContext) { /* ... */ }
+
+    protected override string BuildFinalOutput(IReadOnlyList<string> steps)
+        => string.Concat(steps);
+}
+```
+
+Streaming is **additive**: the one-shot `IInferenceEngine<TInput, TOutput>` contract still works —
+`PredictAsync` is routed through the stream and reduced via `BuildFinalOutput`, so existing
+consumers need no changes. `StreamingOptions` controls `MaxSteps`, `EosTokenIds`, `Sampling`
+(temperature/top-k/top-p/repetition penalty), and prefill/`ChunkSize` behavior.
+
+> **Reference:** [`InferenceEngine.Examples/StreamingTextGenerationExample.cs`](InferenceEngine.Examples/StreamingTextGenerationExample.cs)
+> is a documented skeleton showing prefill/decode tensor assembly, KV-cache carry-back, sampling, and
+> EOS detection. Tokenization and the ONNX model are consumer concerns — see the streaming design
+> spec at [`plan_docs/inference-engine-streaming-upstream-spec.md`](plan_docs/inference-engine-streaming-upstream-spec.md).
 
 ## Configuration
 
