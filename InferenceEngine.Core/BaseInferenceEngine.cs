@@ -551,6 +551,27 @@ namespace InferenceEngine.Core
             }
         }
 
+        /// <summary>
+        /// Apply engine state that was loaded by an out-of-process worker (no in-process
+        /// <see cref="InferenceSession"/>). Used by <c>OutOfProcessBaseInferenceEngine</c> to mirror
+        /// the worker's <see cref="EngineInfo"/>/metadata so the diagnostics surface (provider,
+        /// fallback reason, ordered checks) behaves identically to the in-process engine. Does not
+        /// create a session; the proxy's <see cref="PredictAsync"/> marshals to the worker instead.
+        /// </summary>
+        protected void ApplyLoadedState(
+            InferenceEngineInfo engineInfo,
+            IReadOnlyDictionary<string, NodeMetadata>? inputMetadata,
+            IReadOnlyDictionary<string, NodeMetadata>? outputMetadata,
+            string? primaryInputName)
+        {
+            EngineInfo = engineInfo;
+            InputMetadata = inputMetadata;
+            OutputMetadata = outputMetadata;
+            PrimaryInputName = primaryInputName;
+            _isLoaded = true;
+            FireOnSessionInitialized(engineInfo);
+        }
+
         private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider)
         {
             if (provider == InferenceProvider.MIGraphX)
