@@ -59,6 +59,7 @@
   
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="\" />
+    <None Include="buildTransitive\InferenceEngine.Core.targets" Pack="true" PackagePath="buildTransitive\" />
     <Content Include="models.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>
