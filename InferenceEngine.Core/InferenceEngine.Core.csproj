@@ -149,4 +149,8 @@
     <Exec Command="ln -sf libonnxruntime_providers_migraphx.so   $(OutDir)onnxruntime_providers_migraphx.dll"
            ContinueOnError="true" />
   </Target>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InferenceEngine.Tests" />
+  </ItemGroup>
 </Project>
