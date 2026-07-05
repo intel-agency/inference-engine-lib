@@ -106,8 +106,10 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput>
     // libonnxruntime/comgr). They marshal to the worker. EngineInfo /
     // IsRocmSessionActive are populated from the worker's LoadResponse, so the
     // EngineInfo diagnostics API behaves identically to the in-process engine.
-    public override Task LoadAsync(CancellationToken ct = default);
-    public override Task<TOutput> PredictAsync(TInput input, CancellationToken ct = default);
+    // Signatures match the existing contract (IInferenceEngine<TInput,TOutput> /
+    // BaseInferenceEngine.LoadAsync()/PredictAsync(TInput) — no CancellationToken today).
+    public override Task LoadAsync();
+    public override Task<TOutput> PredictAsync(TInput input);
 }
 
 public sealed class OutOfProcessEngineOptions
@@ -130,6 +132,14 @@ public sealed class OutOfProcessEngineOptions
 
 **Critical invariant:** the proxy's `LoadAsync`/`PredictAsync` **must not** touch any P/Invoke into `onnxruntime`. Because P/Invoke resolution is lazy, merely loading `InferenceEngine.Core.dll` in the host is safe; the host process therefore stays free of `libonnxruntime`/`comgr` and only carries Mesa/`libLLVM-19` (which is harmless on its own).
 
+**Contract alignment (grounded in the current code).** `IInferenceEngine<TInput, TOutput>` **already exists** and is the documented contract; `BaseInferenceEngine<TInput, TOutput>` implements it, with `LoadAsync`/`PredictAsync` declared `virtual`. `BaseStreamingInferenceEngine<TInput, TOutput, TStep>` is the established **sibling pattern**: it extends `BaseInferenceEngine`, keeps the base's in-process session, and overrides `PredictAsync` to route through a different execution path (the decode loop), sealing the one-shot `PreProcessWithContext`/`PostProcessWithContext` hooks. `OutOfProcessBaseInferenceEngine` follows the same sibling idea, with one crucial difference: it must **not** create an in-process session at all.
+
+**Design fork forced by the current code:** `EngineInfo` and `IsRocmSessionActive` on `BaseInferenceEngine` have **`private set`** — a subclass cannot assign them. The proxy must mirror these from the worker's `LoadResponse`. Two options:
+- **(1) Extend `BaseInferenceEngine`** and add a narrow protected seam (e.g. `protected void ApplyRemoteEngineInfo(InferenceEngineInfo info, bool isRocmActive)`) so the proxy can populate them. Reuses the full `BaseInferenceEngine` surface (`InputMetadata`, `Dispose`, etc.) and matches `BaseStreamingInferenceEngine`'s "extend + override" style. Cost: a small base-class change (a guarded protected setter).
+- **(2) Implement `IInferenceEngine<TInput, TOutput>` directly**, with the proxy's own `EngineInfo`/`IsRocmSessionActive` properties. Cleanest isolation (no base machinery, no `_session` field), no base change — but diverges from "everything derives from `BaseInferenceEngine`," so DI/consumers that depend on `BaseInferenceEngine`-specific members would need to depend on the interface instead.
+
+**Recommendation:** **(1)** with a narrow protected seam, for consistency with streaming and to keep the diagnostics surface transparent. This is the team's call (§5). A future `OutOfProcessStreamingInferenceEngine` could compose streaming + OOP cleanly if both honor the `IInferenceEngine` interface.
+
 ### 4.2 Worker side — reusable host loop (library)
 
 The library can't instantiate a consumer's engine subclass (`OnnxInferenceEngine` lives in the consumer). So the library provides the **message loop**, and the consumer provides the **engine factory** + process entry point:
@@ -140,6 +150,10 @@ namespace InferenceEngine.Core.Worker;
 public static class InferenceWorkerHost
 {
     // The consumer's worker Program calls this with a factory that builds ITS engine.
+    // The worker is just a normal BaseInferenceEngine — exactly like the already-working
+    // `--diag inference` CLI: it loads the model, runs EP selection (TryRocmBranch →
+    // MIGraphX), and serves requests. Because it never loads Avalonia/GL, comgr's LLVM is
+    // the only LLVM in the process → no collision.
     public static Task<int> RunAsync<TInput, TOutput>(
         Func<InferenceEngineOptions, BaseInferenceEngine<TInput, TOutput>> engineFactory,
         IWorkerSerializer<TInput, TOutput>? serializer = null,
@@ -147,18 +161,65 @@ public static class InferenceWorkerHost
 }
 ```
 
-The loop reads length-prefixed JSON messages on stdin and writes responses on stdout (stderr passes through for logging). On `Load`, it builds the engine via the factory, calls `LoadAsync()`, and emits the resulting `EngineInfo` (provider, `IsRocmSessionActive`, fallback reason, full check trail) back to the host, which the proxy stores as its own `EngineInfo`. On `Predict`, it calls `PredictAsync`, serializes the result, and emits it.
+The loop is a strict request/response state machine over stdin/stdout (stderr passes through to the host's logs). One request is in flight at a time. Pseudocode:
+
+```csharp
+BaseInferenceEngine<TInput, TOutput>? engine = null;
+while (await protocol.ReadAsync(ct) is { } msg)
+{
+    switch (msg)
+    {
+        case LoadRequest r:
+            engine = engineFactory(r.Options);
+            try {
+                await engine.LoadAsync();                                   // real EP selection happens here
+                await protocol.WriteAsync(new LoadResponse(engine.EngineInfo, engine.IsRocmSessionActive, Error: null));
+            }
+            catch (Exception ex) {
+                await protocol.WriteAsync(new LoadResponse(engine.EngineInfo, IsRocmSessionActive: false, Error: ex.ToString()));
+            }
+            break;
+
+        case PredictRequest p when engine is not null:
+            try {
+                var output = await engine.PredictAsync(serializer.DeserializeInput(p.Input));
+                await protocol.WriteAsync(new PredictResponse(serializer.SerializeOutput(output), Error: null));
+            }
+            catch (Exception ex) {
+                await protocol.WriteAsync(new PredictResponse(Output: null, Error: ex.ToString()));
+            }
+            break;
+
+        case Shutdown: return 0;
+    }
+}
+```
+
+On `Load`, the worker's real engine runs the full probe chain and EP selection (`TryRocmBranch` → MIGraphX) and emits its `EngineInfo` (provider, `IsRocmSessionActive`, fallback reason, ordered `Checks`) back; the host proxy mirrors that onto itself (see the design fork in §4.1). On `Predict`, it runs the model and returns the serialized `TOutput`.
 
 ### 4.3 IPC protocol (length-prefixed JSON over stdin/stdout)
 
-```
-LoadRequest      { "engineId": "...", "options": {…} }
-LoadResponse     { "engineInfo": {…}, "isRocmSessionActive": bool, "fallbackReason": "...", "error": null|string }
+**Framing:** every message is `<4-byte little-endian length><UTF-8 JSON>`. A `kind` discriminator routes each message; one request in flight at a time, responses matched in order.
 
-PredictRequest   { "input": <serialized TInput> }
-PredictResponse  { "output": <serialized TOutput>, "error": null|string }
+```jsonc
+// host → worker
+{ "kind": "load", "engineId": "onnx-yolo-face", "options": { "modelPath": "...", "useGpuAcceleration": true } }
 
-Shutdown         { "kind": "shutdown" }   // graceful worker exit
+// worker → host  (EngineInfo is the same shape the in-process engine produces today)
+{ "kind": "loaded", "engineInfo": {
+      "platform": "LinuxX64", "provider": "MIGraphX", "deviceId": 0,
+      "gpuAccelerationRequested": true, "isFallback": false, "fallbackReason": null,
+      "checks": [ { "order": 0, "name": "gpu.user-enabled", "result": "Passed", "detail": "..." } ]
+  }, "isRocmSessionActive": true, "error": null }
+
+// host → worker  (TInput via IWorkerSerializer — byte[] as base64 here)
+{ "kind": "predict", "input": "<base64 image bytes>" }
+
+// worker → host  (TOutput via IWorkerSerializer — List<PredictionResult> as JSON here)
+{ "kind": "result", "output": [ { "label": "face", "confidence": 0.97, "box": { "x": 12, "y": 34, "w": 56, "h": 78 } } ], "error": null }
+
+// host → worker (graceful)
+{ "kind": "shutdown" }
 ```
 
 **Serialization seam:** because `TInput`/`TOutput` cross the boundary, introduce `IWorkerSerializer<TInput, TOutput>` with a default `System.Text.Json` implementation. For `OnnxInferenceEngine` (`byte[]` → `List<PredictionResult>`) this is trivial (base64 input, JSON detections). The generic base must not assume arbitrary `TInput`/`TOutput` are serializable — constrain or require the serializer.
