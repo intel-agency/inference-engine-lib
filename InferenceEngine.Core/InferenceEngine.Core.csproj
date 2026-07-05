@@ -70,7 +70,7 @@
   </ItemGroup>
 
   <ItemGroup><!-- Base Runtime (CPU) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" GeneratePathProperty="true" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <!-- Tokenizer support for text embedding/generation engines -->
