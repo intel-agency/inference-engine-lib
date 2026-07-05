@@ -16,6 +16,28 @@ public sealed class TextEnginesTests : IDisposable
 {
     private readonly List<IDisposable> _disposables = new();
 
+    /// <summary>
+    /// Returns false on hosts where the OnnxRuntime native library cannot be loaded (e.g. macOS CI
+    /// without the dylib), so the live embedding/generation tests skip instead of failing. Mirrors
+    /// the helper used by <c>EngineInfoTests</c>.
+    /// </summary>
+    private static bool IsNativeOnnxRuntimeAvailable()
+    {
+        try
+        {
+            using var opts = new SessionOptions();
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is DllNotFoundException
+            || ex is TypeInitializationException
+            || (ex is TargetInvocationException { InnerException: Exception inner }
+                && (inner is DllNotFoundException or TypeInitializationException)))
+        {
+            return false;
+        }
+    }
+
     [Fact]
     public void L2Normalize_ProducesUnitVector()
     {
@@ -159,6 +181,7 @@ public sealed class TextEnginesTests : IDisposable
     {
         Skip.If(Environment.GetEnvironmentVariable("CI_SKIP_NETWORK") is not null,
             "Network-gated; CI_SKIP_NETWORK is set.");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
 
         var options = new InferenceEngineOptions
         {
@@ -197,6 +220,7 @@ public sealed class TextEnginesTests : IDisposable
     {
         Skip.If(Environment.GetEnvironmentVariable("CI_SKIP_NETWORK") is not null,
             "Network-gated; CI_SKIP_NETWORK is set.");
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
 
         var options = new InferenceEngineOptions
         {
