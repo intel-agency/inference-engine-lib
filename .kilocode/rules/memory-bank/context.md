@@ -2,24 +2,24 @@
 
 ## Current work focus
 
-- PR #15 (`dev/provider-info` → `development`) **merged** on 2026-07-04 (merge commit `a9aea18`). `development` now holds the Engine-Info diagnostics API, the MIGraphX execution provider, and the PR #15 review fixes.
-- The Publish NuGet workflow fired on the merge and published `InferenceEngine.Core` **`1.0.0-dev.11`** to the intel-agency GitHub Packages feed — consumable by InferenceApp now.
-- Next decision: whether to promote `development → main → release` for a stable package, and/or install the AMD ROCm runtimes on this Debian box to activate MIGraphX GPU.
+- **Section-B (consumer diagnostics) implemented in InferenceApp** (repo `nam20485/InferenceApp`, branch `dev/performer-id-adaptation`), consuming `InferenceEngine.Core 1.1.0-dev.13`. EngineDiagnosticsViewModel + OnSessionInitialized wiring for both engines + SettingsWindow diagnostics panel + `--diag inference` CLI + consumer test. Builds clean; 57 tests pass; `--diag inference` verified end-to-end (currently `Provider: Cpu`, `Fallback: HipRuntimeMissing` on this box). **Changes are uncommitted.**
+- `1.1.0-dev.13` is published to the intel-agency GitHub Packages feed (manual `workflow_dispatch` of the Publish NuGet workflow after setting `VERSION_PREFIX=1.1`).
+- `docs/linux-rocm-config.md` rewritten for MIGraphX (Overview, runtime libs, ONNX-Runtime-side probe, a new `--diag inference` verification section + check table, install note with the `.so.5` ABI warning, behavior/confirming-EP/why-no-throw sections updated to `EngineInfo.Provider`). `libonnxruntime_providers_rocm` refs are gone; minor `IsRocmRuntimeUsable` mentions remain in the troubleshooting/appendix.
 
-## Recent changes
+## Recent changes (lib)
 
-- `b4df152`: guarded redundant CPU fallback (comment [2] — `provider != Cpu` in the outer recovery catch `when`-clause) and simplified `SkipRocmProviderChecks` default-`true` args (comment [5]).
-- `b0a54de`: switched 5 ORT-dependent `EngineInfoTests` from `[Fact]` to `[SkippableFact]` (pre-existing macOS CI failure surfaced after the artifact-quota fix was applied).
-- Deleted superseded branches `dev/provider-info` and `feature/migraphx-runtime-probes` (local + remote) and removed the `inference-engine-lib-wt-provider-info` worktree.
+- WS1 done: `VERSION_PREFIX` bumped `1.0 → 1.1`; `1.1.0-dev.13` published.
+- WS2.1 done: `docs/linux-rocm-config.md` MIGraphX rewrite.
+- WS2.2 pending (USER, sudo): `sudo apt install hip-runtime-amd migraphx` from the AMD ROCm repo on this Debian box to activate MIGraphX.
+- WS2.3 pending: after install, validate via `EngineInfo_LinuxX64WithKfd_MIGraphXWithAllChecksPassed` (expect `Provider == MIGraphX`) and InferenceApp `--diag inference`.
 
-## Key decision: multi-SONAME HIP probe DISCARDED
+## Key gotcha: NUGET_AUTH_TOKEN
 
-- An uncommitted multi-SONAME HIP probe (try `libamdhip64.so.7/.6/.5`) was investigated for carrying into PR #15. It was **discarded**: on this box it loaded the ABI-incompatible `libamdhip64.so.5` (HIP 5.7) into the HIP-7.x-built `libonnxruntime.so`, triggering an LLVM command-line-option collision that **aborted the test host** (regression vs. the clean single-`.so.7` baseline).
-- Real fix for GPU inference is installing the AMD ROCm runtimes (`hip-runtime-amd migraphx`), NOT code. See `docs/inferenceapp-migraphx-migration-guide.md` §7.
+- Both repos' `nuget.config` use `%NUGET_AUTH_TOKEN%` for the `github-intel-agacy` source. If unset in the shell, `dotnet restore`/`pack`/`push` hang (and VS Code C# DevKit's `dotnet restore --interactive` hangs for hours). Fix: export `NUGET_AUTH_TOKEN` (the `ghp…` PAT) in every restore shell; persist in `~/.bashrc`.
 
 ## Next steps
 
-- Decide on stable release promotion (`development → main → release`) — stable version would be `1.0.<N>` + NuGet.org.
-- Install `hip-runtime-amd` + `migraphx` on the Debian box to activate MIGraphX; verify `EngineInfo.Provider == MIGraphX`.
-- Section B: surface `EngineInfo` in InferenceApp (separate repo).
-- Keep this file updated after meaningful changes.
+- USER: install `hip-runtime-amd` + `migraphx`; then validate GPU (`--diag inference` should show `Provider: MIGraphX`).
+- Commit the InferenceApp Section-B changes + the lib doc rewrite when ready.
+- (Optional) promote `development → main → release` for a stable `1.1.N` package + NuGet.org.
+- (Optional) finish the minor `IsRocmRuntimeUsable` cleanup in `linux-rocm-config.md` troubleshooting/appendix.
