@@ -73,6 +73,10 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" /><!-- Logging Abstraction -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <!-- Tokenizer support for text embedding/generation engines -->
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.3" />
+    <!-- Expose internal text math helpers to the test project for hermetic verification. -->
+    <InternalsVisibleTo Include="InferenceEngine.Tests" />
     <!-- SourceLink: enables source stepping from the NuGet.org symbol server -->
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
