@@ -13,7 +13,7 @@ name: ROCm GPU Inference Test
 on:
   workflow_dispatch:
   push:
-    branches: [development, main]
+    branches: [development, main, release]
     paths:
       - 'InferenceEngine.Core/**'
       - 'InferenceEngine.Examples/**'

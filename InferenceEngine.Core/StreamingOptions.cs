@@ -11,7 +11,8 @@ public sealed class StreamingOptions
     /// <summary>Token ids that terminate generation when sampled.</summary>
     public IReadOnlyList<int> EosTokenIds { get; set; } = System.Array.Empty<int>();
 
-    /// <summary>Sampling strategy (greedy by default).</summary>
+    /// <summary>Sampling strategy. Honored by <c>BaseStreamingInferenceEngine.SampleNextToken</c>;
+    /// temperature 0 (default) is greedy argmax; &gt;0 enables softmax sampling with top-k/top-p.</summary>
     public SamplingParams Sampling { get; set; } = new();
 
     /// <summary>If true, also yield prompt tokens from the prefill pass. Default false.</summary>

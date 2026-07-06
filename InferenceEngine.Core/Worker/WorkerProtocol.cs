@@ -48,7 +48,9 @@ public sealed class WorkerEnvelope
 /// <summary>Length-prefixed JSON framing over a duplex stream (stdin/stdout pipe).</summary>
 internal static class WorkerFrame
 {
-    private const int MaxFrameBytes = 256 * 1024 * 1024; // 256 MiB guard against corrupt length prefixes
+    // 16 MiB cap: a corrupt/buggy length prefix is rejected before allocating, rather than forcing a
+    // single huge contiguous (LOH) allocation. Any plausible IPC JSON envelope is far below this.
+    private const int MaxFrameBytes = 16 * 1024 * 1024; // 16 MiB guard against corrupt length prefixes
 
     public static async Task<WorkerEnvelope?> ReadAsync(Stream stream, CancellationToken ct)
     {

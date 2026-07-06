@@ -308,6 +308,13 @@ dotnet test --collect:"XPlat Code Coverage"
 
 > Integration tests that require a GPU or model download (e.g. `FaceDetectionEngineTests`) are skipped on Linux/macOS CI by default.
 
+Unit tests run on all three OSes (Ubuntu, Windows, macOS) in CI. The GPU/MIGraphX provider tests are
+`SkippableFact`-gated on the AMD ROCm native runtimes (`/dev/kfd`, `libamdhip64.so.7`,
+`libmigraphx_c.so.3`), none of which are present on GitHub-hosted runners, so they always SKIP there.
+To actually exercise the MIGraphX append/fallback paths, run the suite additionally on a self-hosted
+Linux-x64 ROCm runner with `hip-runtime-amd` + `migraphx` installed, and add that runner's results as
+a required status check on `main`, `development`, and `release`.
+
 ## CI/CD
 
 | Workflow | Trigger | Description |

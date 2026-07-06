@@ -2,7 +2,7 @@ name: Publish NuGet
 
 on:
   push:
-    branches: [development, staging, release]
+    branches: [development, main, release]
     paths:
       - 'InferenceEngine.Core/**'
       - 'InferenceEngine.Examples/**'
@@ -136,7 +136,7 @@ jobs:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
     needs: [pack]
-    if: success() && github.ref_name == 'release'
+    if: success() && github.ref_name == 'release' && vars.PUBLISH_NUGET_ORG == 'true'
     environment:
       name: nuget-org
       url: https://www.nuget.org/packages/InferenceEngine.Core
