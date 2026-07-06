@@ -99,7 +99,7 @@ public sealed class OutOfProcessConcurrencyTests
 
     // --- Test doubles --------------------------------------------------------------
 
-    private sealed class TestOopEngine : OutOfProcessBaseInferenceEngine<string, string>, IAsyncDisposable
+    private sealed class TestOopEngine : OutOfProcessBaseInferenceEngine<string, string>
     {
         public int SpawnCount;
         private readonly bool _hang;
@@ -173,9 +173,11 @@ public sealed class OutOfProcessConcurrencyTests
             await WorkerFrame.ReadAsync(worker, CancellationToken.None).ConfigureAwait(false);
         }
 
-        public async ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
-            Dispose();
+            // Drive the base's async teardown (graceful shutdown frame + pipe/process disposal) so the
+            // new IAsyncDisposable path is exercised, then await the simulated worker loop's exit.
+            await base.DisposeAsync().ConfigureAwait(false);
             if (_workerLoop is not null)
             {
                 try { await _workerLoop.ConfigureAwait(false); }

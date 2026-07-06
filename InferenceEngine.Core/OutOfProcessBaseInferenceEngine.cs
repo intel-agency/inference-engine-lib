@@ -31,7 +31,7 @@ namespace InferenceEngine.Core;
 /// cannot tear down the pipe while a call is mid-flight.
 /// </para>
 /// </remarks>
-public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInferenceEngine<TInput, TOutput>
+public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInferenceEngine<TInput, TOutput>, IAsyncDisposable
 {
     private readonly OutOfProcessEngineOptions _oopOptions;
     private readonly IWorkerSerializer<TInput, TOutput> _serializer;
@@ -254,6 +254,81 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         if (_disposed) throw new ObjectDisposedException(nameof(OutOfProcessBaseInferenceEngine<TInput, TOutput>));
     }
 
+    /// <summary>
+    /// Asynchronously tears down the worker: sends a graceful <c>shutdown</c> frame without
+    /// blocking, then disposes the pipe/process and base session. Prefer
+    /// <c>await using</c> over the synchronous <see cref="Dispose"/> — the synchronous path cannot
+    /// (and must not) perform a sync-over-async write.
+    /// </summary>
+    public virtual async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            await _inFlight.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    await SendShutdownFrameAsync().ConfigureAwait(false);
+                    TearDownPipeAndProcess();
+                }
+            }
+            finally
+            {
+                _inFlight.Release();
+            }
+            _inFlight.Dispose();
+        }
+
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>Best-effort asynchronous graceful-shutdown frame, only when a live pipe + process exist.</summary>
+    private async ValueTask SendShutdownFrameAsync()
+    {
+        try
+        {
+            if (_toWorker is not null && _process is not null && !_process.HasExited)
+            {
+                try
+                {
+                    await WorkerFrame.WriteAsync(_toWorker, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch { /* best-effort */ }
+            }
+        }
+        catch { /* swallow teardown errors */ }
+    }
+
+    /// <summary>
+    /// Disposes the host side of the pipe and the worker process. Disposing stdin FIRST closes the
+    /// worker's read end, which signals EOF and unblocks any pending stdout/stderr write so
+    /// <see cref="Process.WaitForExit(int)"/> cannot deadlock; then the process is reaped/killed.
+    /// </summary>
+    private void TearDownPipeAndProcess()
+    {
+        try { _toWorker?.Dispose(); } catch { /* best-effort */ }
+        try { _fromWorker?.Dispose(); } catch { /* best-effort */ }
+        _toWorker = null;
+        _fromWorker = null;
+
+        try
+        {
+            if (_process is not null && !_process.HasExited)
+            {
+                if (!_process.WaitForExit(2000))
+                    try { _process.Kill(); } catch { /* best-effort */ }
+            }
+        }
+        catch { /* swallow teardown errors */ }
+
+        _process?.Dispose();
+        _process = null;
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_disposed)
@@ -263,38 +338,16 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
             _inFlight.Wait();
             try
             {
-                _disposed = true;
-
-                // Best-effort graceful shutdown — only when we actually have a live pipe + process.
-                try
+                if (!_disposed)
                 {
-                    if (_toWorker is not null && _process is not null && !_process.HasExited)
-                    {
-                        try { WorkerFrame.WriteAsync(_toWorker, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None).GetAwaiter().GetResult(); }
-                        catch { /* best-effort */ }
-                    }
+                    _disposed = true;
+                    // Sync path: NO sync-over-async shutdown write (avoids thread-pool starvation /
+                    // deadlock). The explicit "shutdown" frame is sent only on the async path
+                    // (DisposeAsync). Here, TearDownPipeAndProcess closes stdin, which signals EOF to
+                    // the worker; InferenceWorkerHost.RunAsync breaks its loop on the null message and
+                    // releases the GPU/session.
+                    TearDownPipeAndProcess();
                 }
-                catch { /* swallow teardown errors */ }
-
-                // Dispose the streams FIRST: closing stdin signals EOF to the worker (unblocking any
-                // pending stdout/stderr write) so WaitForExit cannot deadlock; closing stdout ends our read side.
-                _toWorker?.Dispose();
-                _fromWorker?.Dispose();
-                _toWorker = null;
-                _fromWorker = null;
-
-                try
-                {
-                    if (_process is not null && !_process.HasExited)
-                    {
-                        if (!_process.WaitForExit(2000))
-                            try { _process.Kill(); } catch { /* best-effort */ }
-                    }
-                }
-                catch { /* swallow teardown errors */ }
-
-                _process?.Dispose();
-                _process = null;
             }
             finally
             {

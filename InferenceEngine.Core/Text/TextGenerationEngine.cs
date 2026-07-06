@@ -283,6 +283,17 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         string currFull = decode(gen.Ids);
         int confirmed = CommonPrefixLength(gen.PrevFull, currFull);
 
+        // Guard the slice start: a non-monotonic decode (subword merges / control-char stripping)
+        // could shrink currFull below the already-emitted length. Fail with a descriptive error
+        // instead of letting Substring throw a generic ArgumentOutOfRangeException.
+        if (gen.EmittedLen > currFull.Length)
+        {
+            throw new InvalidOperationException(
+                $"Decoded text shrank below the already-emitted length " +
+                $"(emitted={gen.EmittedLen}, current={currFull.Length}); the tokenizer is not stable " +
+                $"for one-step-delayed delta decoding.");
+        }
+
         string delta;
         if (isEos)
         {

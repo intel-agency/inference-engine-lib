@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -155,78 +156,94 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         // Temperature scaling.
         float temperature = sampling.Temperature;
         int vocab = logits.Length;
-        float[] scaled = new float[vocab];
-        for (int i = 0; i < vocab; i++)
-            scaled[i] = logits[i] / temperature;
 
-        // Top-k filtering: keep only the k highest logits, mask the rest to -inf.
-        int topK = sampling.TopK;
-        if (topK > 0 && topK < vocab)
+        // Rent vocab-sized buffers instead of allocating them on every step. For a typical
+        // vocabulary (e.g. Phi-3's 32,006) a fresh double[32006] would land on the Large Object Heap
+        // each token, causing severe GC pressure during generation. Rented arrays may be larger than
+        // `vocab`, so every loop below is bounded by `vocab` and helpers take a vocab-length span.
+        float[] scaled = ArrayPool<float>.Shared.Rent(vocab);
+        double[] probs = ArrayPool<double>.Shared.Rent(vocab);
+        int[]? order = null;
+        try
         {
-            float cutoff = NthLargest(scaled, topK);
             for (int i = 0; i < vocab; i++)
-                if (scaled[i] < cutoff)
-                    scaled[i] = float.NegativeInfinity;
-        }
+                scaled[i] = logits[i] / temperature;
 
-        // Softmax (numerically stable: subtract max of finite values).
-        float max = float.NegativeInfinity;
-        for (int i = 0; i < vocab; i++)
-            if (scaled[i] > max) max = scaled[i];
-        if (float.IsNegativeInfinity(max))
-            return Argmax(logits); // everything masked; fall back to greedy
+            // Top-k filtering: keep only the k highest logits, mask the rest to -inf.
+            int topK = sampling.TopK;
+            if (topK > 0 && topK < vocab)
+            {
+                float cutoff = NthLargest(scaled.AsSpan(0, vocab), topK);
+                for (int i = 0; i < vocab; i++)
+                    if (scaled[i] < cutoff)
+                        scaled[i] = float.NegativeInfinity;
+            }
 
-        double sum = 0d;
-        double[] probs = new double[vocab];
-        for (int i = 0; i < vocab; i++)
-        {
-            double p = Math.Exp(scaled[i] - max);
-            probs[i] = p;
-            sum += p;
-        }
+            // Softmax (numerically stable: subtract max of finite values).
+            float max = float.NegativeInfinity;
+            for (int i = 0; i < vocab; i++)
+                if (scaled[i] > max) max = scaled[i];
+            if (float.IsNegativeInfinity(max))
+                return Argmax(logits); // everything masked; fall back to greedy
 
-        // Top-p (nucleus) filtering: keep the smallest set of highest-prob tokens whose
-        // cumulative probability reaches p, sorted descending.
-        float topP = sampling.TopP;
-        if (topP > 0f && topP < 1f)
-        {
-            int[] order = new int[vocab];
-            for (int i = 0; i < vocab; i++) order[i] = i;
-            Array.Sort(order, (a, b) => probs[b].CompareTo(probs[a]));
-            double cum = 0d;
-            bool reached = false;
+            double sum = 0d;
             for (int i = 0; i < vocab; i++)
             {
-                if (reached)
-                {
-                    probs[order[i]] = 0d;
-                }
-                else
-                {
-                    cum += probs[order[i]] / sum;
-                    if (cum >= topP) reached = true;
-                }
+                double p = Math.Exp(scaled[i] - max);
+                probs[i] = p;
+                sum += p;
             }
-            // Renormalize the kept set.
-            double keptSum = 0d;
-            for (int i = 0; i < vocab; i++) keptSum += probs[i];
-            if (keptSum <= 0d) return Argmax(logits);
-            for (int i = 0; i < vocab; i++) probs[i] /= keptSum;
-        }
-        else
-        {
-            for (int i = 0; i < vocab; i++) probs[i] /= sum;
-        }
 
-        // Sample from the resulting distribution.
-        double r = Random.Shared.NextDouble();
-        double acc = 0d;
-        for (int i = 0; i < vocab; i++)
-        {
-            acc += probs[i];
-            if (r < acc) return i;
+            // Top-p (nucleus) filtering: keep the smallest set of highest-prob tokens whose
+            // cumulative probability reaches p, sorted descending.
+            float topP = sampling.TopP;
+            if (topP > 0f && topP < 1f)
+            {
+                order = ArrayPool<int>.Shared.Rent(vocab);
+                for (int i = 0; i < vocab; i++) order[i] = i;
+                Array.Sort(order, 0, vocab, Comparer<int>.Create((a, b) => probs[b].CompareTo(probs[a])));
+                double cum = 0d;
+                bool reached = false;
+                for (int i = 0; i < vocab; i++)
+                {
+                    if (reached)
+                    {
+                        probs[order[i]] = 0d;
+                    }
+                    else
+                    {
+                        cum += probs[order[i]] / sum;
+                        if (cum >= topP) reached = true;
+                    }
+                }
+                // Renormalize the kept set.
+                double keptSum = 0d;
+                for (int i = 0; i < vocab; i++) keptSum += probs[i];
+                if (keptSum <= 0d) return Argmax(logits);
+                for (int i = 0; i < vocab; i++) probs[i] /= keptSum;
+            }
+            else
+            {
+                for (int i = 0; i < vocab; i++) probs[i] /= sum;
+            }
+
+            // Sample from the resulting distribution.
+            double r = Random.Shared.NextDouble();
+            double acc = 0d;
+            for (int i = 0; i < vocab; i++)
+            {
+                acc += probs[i];
+                if (r < acc) return i;
+            }
+            return vocab - 1;
         }
-        return vocab - 1;
+        finally
+        {
+            ArrayPool<float>.Shared.Return(scaled);
+            ArrayPool<double>.Shared.Return(probs);
+            if (order is not null)
+                ArrayPool<int>.Shared.Return(order);
+        }
     }
 
     private static int Argmax(ReadOnlySpan<float> logits)
@@ -244,8 +261,9 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         return best;
     }
 
-    /// <summary>Returns the cutoff value of the k-th largest element (O(n) partial sort).</summary>
-    private static float NthLargest(float[] values, int k)
+    /// <summary>Returns the cutoff value of the k-th largest element (O(n) partial sort).
+    /// Takes a span so it can operate on a vocab-length slice of a (possibly larger) rented array.</summary>
+    private static float NthLargest(ReadOnlySpan<float> values, int k)
     {
         var heap = new PriorityQueue<float, float>(k);
         for (int i = 0; i < values.Length; i++)
