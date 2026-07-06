@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -96,6 +97,8 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
                     outputs.Dispose();
                 }
 
+                if (state is IDisposable priorState)
+                    priorState.Dispose();
                 state = nextState;
                 yield return yielded;
 
@@ -106,6 +109,8 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         {
             // Reset per-run state and release the in-flight guard on every exit path
             // (success, EOS, MaxSteps, exception, and cancellation).
+            if (state is IDisposable finalState)
+                finalState.Dispose();
             state = null;
             CurrentOptions = null;
             Interlocked.Exchange(ref _activeStreams, 0);
@@ -135,13 +140,114 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
     protected abstract TOutput BuildFinalOutput(IReadOnlyList<TStep> steps);
 
     /// <summary>
-    /// Greedy (argmax) sampling over a logit row. Override for top-k/top-p/temperature/
-    /// repetition-penalty using <see cref="StreamingOptions.Sampling"/>. The engine calls this from
-    /// <see cref="ProcessStepOutputs"/> when it wants the default sampler.
+    /// Samples one token id from a vocab-length logit row. Greedy argmax when
+    /// <see cref="StreamingOptions.Sampling"/>'s temperature is disabled (0); otherwise
+    /// temperature-scaled softmax sampling with optional top-k / top-p filtering.
+    /// Engines call this from <see cref="ProcessStepOutputs"/> when they want the default sampler.
     /// </summary>
     protected virtual int SampleNextToken(ReadOnlySpan<float> logits)
     {
         if (logits.IsEmpty) return -1;
+
+        var sampling = CurrentOptions?.Sampling;
+        if (sampling is null || sampling.Temperature <= 0f)
+            return Argmax(logits);
+
+        // Temperature scaling.
+        float temperature = sampling.Temperature;
+        int vocab = logits.Length;
+
+        // Rent vocab-sized buffers instead of allocating them on every step. For a typical
+        // vocabulary (e.g. Phi-3's 32,006) a fresh double[32006] would land on the Large Object Heap
+        // each token, causing severe GC pressure during generation. Rented arrays may be larger than
+        // `vocab`, so every loop below is bounded by `vocab` and helpers take a vocab-length span.
+        float[] scaled = ArrayPool<float>.Shared.Rent(vocab);
+        double[] probs = ArrayPool<double>.Shared.Rent(vocab);
+        int[]? order = null;
+        try
+        {
+            for (int i = 0; i < vocab; i++)
+                scaled[i] = logits[i] / temperature;
+
+            // Top-k filtering: keep only the k highest logits, mask the rest to -inf.
+            int topK = sampling.TopK;
+            if (topK > 0 && topK < vocab)
+            {
+                float cutoff = NthLargest(scaled.AsSpan(0, vocab), topK);
+                for (int i = 0; i < vocab; i++)
+                    if (scaled[i] < cutoff)
+                        scaled[i] = float.NegativeInfinity;
+            }
+
+            // Softmax (numerically stable: subtract max of finite values).
+            float max = float.NegativeInfinity;
+            for (int i = 0; i < vocab; i++)
+                if (scaled[i] > max) max = scaled[i];
+            if (float.IsNegativeInfinity(max))
+                return Argmax(logits); // everything masked; fall back to greedy
+
+            double sum = 0d;
+            for (int i = 0; i < vocab; i++)
+            {
+                double p = Math.Exp(scaled[i] - max);
+                probs[i] = p;
+                sum += p;
+            }
+
+            // Top-p (nucleus) filtering: keep the smallest set of highest-prob tokens whose
+            // cumulative probability reaches p, sorted descending.
+            float topP = sampling.TopP;
+            if (topP > 0f && topP < 1f)
+            {
+                order = ArrayPool<int>.Shared.Rent(vocab);
+                for (int i = 0; i < vocab; i++) order[i] = i;
+                Array.Sort(order, 0, vocab, Comparer<int>.Create((a, b) => probs[b].CompareTo(probs[a])));
+                double cum = 0d;
+                bool reached = false;
+                for (int i = 0; i < vocab; i++)
+                {
+                    if (reached)
+                    {
+                        probs[order[i]] = 0d;
+                    }
+                    else
+                    {
+                        cum += probs[order[i]] / sum;
+                        if (cum >= topP) reached = true;
+                    }
+                }
+                // Renormalize the kept set.
+                double keptSum = 0d;
+                for (int i = 0; i < vocab; i++) keptSum += probs[i];
+                if (keptSum <= 0d) return Argmax(logits);
+                for (int i = 0; i < vocab; i++) probs[i] /= keptSum;
+            }
+            else
+            {
+                for (int i = 0; i < vocab; i++) probs[i] /= sum;
+            }
+
+            // Sample from the resulting distribution.
+            double r = Random.Shared.NextDouble();
+            double acc = 0d;
+            for (int i = 0; i < vocab; i++)
+            {
+                acc += probs[i];
+                if (r < acc) return i;
+            }
+            return vocab - 1;
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(scaled);
+            ArrayPool<double>.Shared.Return(probs);
+            if (order is not null)
+                ArrayPool<int>.Shared.Return(order);
+        }
+    }
+
+    private static int Argmax(ReadOnlySpan<float> logits)
+    {
         int best = 0;
         float max = logits[0];
         for (int i = 1; i < logits.Length; i++)
@@ -153,6 +259,27 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
             }
         }
         return best;
+    }
+
+    /// <summary>Returns the cutoff value of the k-th largest element (O(n) partial sort).
+    /// Takes a span so it can operate on a vocab-length slice of a (possibly larger) rented array.</summary>
+    private static float NthLargest(ReadOnlySpan<float> values, int k)
+    {
+        var heap = new PriorityQueue<float, float>(k);
+        for (int i = 0; i < values.Length; i++)
+        {
+            float v = values[i];
+            if (heap.Count < k)
+            {
+                heap.Enqueue(v, v);
+            }
+            else if (v > heap.Peek())
+            {
+                heap.Dequeue();
+                heap.Enqueue(v, v);
+            }
+        }
+        return heap.Peek();
     }
 
     /// <summary>
@@ -177,6 +304,34 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         var copy = new DenseTensor<float>(src.Dimensions);
         src.Buffer.Span.CopyTo(copy.Buffer.Span);
         return NamedOnnxValue.CreateFromTensor(pastName, copy);
+    }
+
+    /// <summary>
+    /// Convenience <see cref="IDisposable"/> holder for a list of carry-forward KV-cache tensors.
+    /// Engines that use <see cref="CloneAsPastKeyValue"/> should wrap the cloned values in an
+    /// instance of this type (or any other <see cref="IDisposable"/>) and return it from
+    /// <see cref="ProcessStepOutputs"/> as the next state. The base loop disposes the previous
+    /// state on step rollover and the final state on stream end, releasing the cloned tensors.
+    /// </summary>
+    protected sealed class KeyValueCacheState : IDisposable
+    {
+        private readonly List<NamedOnnxValue> _values;
+        private bool _disposed;
+
+        public KeyValueCacheState(List<NamedOnnxValue> values)
+        {
+            _values = values ?? throw new ArgumentNullException(nameof(values));
+        }
+
+        /// <summary>The carry-forward KV-cache tensors.</summary>
+        public IReadOnlyList<NamedOnnxValue> Values => _values;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            DisposeNamedOnnxValues(_values);
+        }
     }
 
     /// <summary>Dispose any <see cref="NamedOnnxValue"/> items in <paramref name="values"/> that are disposable.</summary>

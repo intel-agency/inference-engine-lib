@@ -65,6 +65,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
+    # NOTE (T6): the GPU/MIGraphX provider tests (SkippableFact gated on /dev/kfd +
+    # libamdhip64.so.7 + libmigraphx_c.so.3) always SKIP on GitHub-hosted runners because those
+    # native runtimes are not installed there. To actually exercise the MIGraphX append/fallback
+    # paths, run this test job additionally on a self-hosted Linux-x64 ROCm runner that has the AMD
+    # ROCm stack (hip-runtime-amd + migraphx) installed, and wire that runner's results as a required
+    # status check on `main`, `development`, and `release`.
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
