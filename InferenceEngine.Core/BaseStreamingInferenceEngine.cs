@@ -97,7 +97,9 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
                     outputs.Dispose();
                 }
 
-                if (state is IDisposable priorState)
+                // Guard against an engine that reuses (mutates in place) the same state object
+                // across steps: disposing the prior reference would also dispose the live state.
+                if (state is IDisposable priorState && !ReferenceEquals(state, nextState))
                     priorState.Dispose();
                 state = nextState;
                 yield return yielded;
@@ -161,11 +163,16 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         // vocabulary (e.g. Phi-3's 32,006) a fresh double[32006] would land on the Large Object Heap
         // each token, causing severe GC pressure during generation. Rented arrays may be larger than
         // `vocab`, so every loop below is bounded by `vocab` and helpers take a vocab-length span.
-        float[] scaled = ArrayPool<float>.Shared.Rent(vocab);
-        double[] probs = ArrayPool<double>.Shared.Rent(vocab);
+        // Declare the rented arrays as nullable outside the try so a rent that throws cannot leak an
+        // already-rented buffer; the finally block returns whichever buffers were successfully rented.
+        float[]? scaled = null;
+        double[]? probs = null;
         int[]? order = null;
         try
         {
+            scaled = ArrayPool<float>.Shared.Rent(vocab);
+            probs = ArrayPool<double>.Shared.Rent(vocab);
+
             for (int i = 0; i < vocab; i++)
                 scaled[i] = logits[i] / temperature;
 
@@ -239,8 +246,10 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         }
         finally
         {
-            ArrayPool<float>.Shared.Return(scaled);
-            ArrayPool<double>.Shared.Return(probs);
+            if (scaled is not null)
+                ArrayPool<float>.Shared.Return(scaled);
+            if (probs is not null)
+                ArrayPool<double>.Shared.Return(probs);
             if (order is not null)
                 ArrayPool<int>.Shared.Return(order);
         }

@@ -213,28 +213,38 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         // Race the write against a timeout. Redirected stdin pipes do not reliably honor
         // cancellation, so on timeout we kill the worker (closing the read end of stdin) to unblock
         // the pending write and then surface a TimeoutException (H2).
+        // Task.WaitAsync(TimeSpan) avoids the Task.Delay timer leak that Task.WhenAny would cause on
+        // this per-prediction hot path.
         var writeTask = WorkerFrame.WriteAsync(_toWorker!, envelope, CancellationToken.None);
-        if (await Task.WhenAny(writeTask, Task.Delay(timeout)).ConfigureAwait(false) != writeTask)
+        try
+        {
+            await writeTask.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
         {
             KillWorker();
             throw new TimeoutException($"Worker did not accept a write within {timeout}.");
         }
-        await writeTask.ConfigureAwait(false); // propagate any write fault
     }
 
     private async Task<WorkerEnvelope?> ReadAsync(TimeSpan timeout)
     {
         ThrowIfDisposed();
         // Redirected process stdout pipes do not promptly honor CancellationToken, so race the read
-        // against a delay; on expiry kill the worker and dispose the read stream to unblock the
+        // against a timeout; on expiry kill the worker and dispose the read stream to unblock the
         // pending read, then surface a TimeoutException (H2).
+        // Task.WaitAsync(TimeSpan) avoids the Task.Delay timer leak that Task.WhenAny would cause on
+        // this per-prediction hot path.
         var readTask = WorkerFrame.ReadAsync(_fromWorker!, CancellationToken.None);
-        if (await Task.WhenAny(readTask, Task.Delay(timeout)).ConfigureAwait(false) != readTask)
+        try
+        {
+            return await readTask.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
         {
             KillWorker();
             throw new TimeoutException($"Worker did not respond within {timeout}.");
         }
-        return await readTask.ConfigureAwait(false);
     }
 
     /// <summary>
