@@ -341,11 +341,17 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
                 if (!_disposed)
                 {
                     _disposed = true;
-                    // Sync path: NO sync-over-async shutdown write (avoids thread-pool starvation /
-                    // deadlock). The explicit "shutdown" frame is sent only on the async path
-                    // (DisposeAsync). Here, TearDownPipeAndProcess closes stdin, which signals EOF to
-                    // the worker; InferenceWorkerHost.RunAsync breaks its loop on the null message and
-                    // releases the GPU/session.
+                    // Best-effort graceful shutdown via the synchronous WorkerFrame.Write (added on
+                    // main) — this avoids the sync-over-async .GetAwaiter().GetResult() that
+                    // originally lived here, while still sending an explicit shutdown frame (better
+                    // than relying on stdin EOF alone). Only sent when a live pipe + process exist;
+                    // the async DisposeAsync path sends the same frame without blocking.
+                    try
+                    {
+                        if (_toWorker is not null && _process is not null && !_process.HasExited)
+                            WorkerFrame.Write(_toWorker, new WorkerEnvelope { Kind = "shutdown" });
+                    }
+                    catch { /* best-effort */ }
                     TearDownPipeAndProcess();
                 }
             }

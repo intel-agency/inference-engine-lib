@@ -17,8 +17,6 @@ $Project = Join-Path $Root "InferenceEngine.Core" "InferenceEngine.Core.csproj"
 $OutDir = Join-Path $Root "InferenceEngine.Core" "bin" "Debug"
 $Package = Join-Path $OutDir "InferenceEngine.Core.$Version.nupkg"
 
-dotnet
-
 Write-Host "Packing InferenceEngine.Core v$Version..." -ForegroundColor Cyan
 dotnet pack $Project -p:Version=$Version 
 if ($LASTEXITCODE -ne 0) { throw "Pack failed." }
