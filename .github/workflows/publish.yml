@@ -69,7 +69,7 @@ jobs:
           RUN="${{ github.run_number }}"
           case "${{ github.ref_name }}" in
             development) VERSION="${PREFIX}-dev.${RUN}" ;;
-            staging)     VERSION="${PREFIX}-rc.${RUN}" ;;
+            main)        VERSION="${PREFIX}-rc.${RUN}" ;;
             release)     VERSION="${PREFIX}.${RUN}" ;;
             *)           VERSION="${PREFIX}-local.${RUN}" ;;
           esac

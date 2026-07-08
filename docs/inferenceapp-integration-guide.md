@@ -93,7 +93,7 @@ on the [GitHub Packages feed](https://github.com/orgs/intel-agency/packages?repo
 | Branch in inference-engine-lib | Version format | Example |
 | --- | --- | --- |
 | `development` | `{PREFIX}-dev.{N}` | `1.0.0-dev.42` |
-| `staging` | `{PREFIX}-rc.{N}` | `1.0.0-rc.7` |
+| `main` | `{PREFIX}-rc.{N}` | `1.0.0-rc.7` |
 | `release` | `{PREFIX}.{N}` | `1.0.0.71` |
 
 ---

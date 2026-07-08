@@ -75,7 +75,7 @@ to obtain the real `libamdhip64.so.7` + `libmigraphx_c.so.3`. The migration guid
 
 ## Promotion & package publication
 
-The **Publish NuGet** workflow triggers on push to `development` / `staging` / `release`.
+The **Publish NuGet** workflow triggers on push to `development` / `main` / `release`.
 Merging PR #15 to `development` **already fired it** and **succeeded**, publishing to the
 intel-agency GitHub Packages feed:
 

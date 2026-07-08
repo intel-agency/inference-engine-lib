@@ -203,7 +203,7 @@ All 5 comments are addressed. Specific evidence:
 
 - The Windows-host cross-RID test for Comment 5 was not run (no Windows host available in this environment). The RID-gated condition is structurally correct; validation on Windows is a one-liner.
 - No package version bumps. The `1.24.1` / `1.23.0` / `1.19.2-dev.28` versions are preserved. The user's preference for a separate decision on whether to upgrade the upstream `Microsoft.ML.OnnxRuntime` package (which would arguably be a cleaner long-term fix for the P/Invoke naming quirk) is respected.
-- No commit, push, or staging. Working tree only, at the user's discretion.
+- No commit, push, or main. Working tree only, at the user's discretion.
 
 ---
 

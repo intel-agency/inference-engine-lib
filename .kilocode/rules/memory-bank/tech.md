@@ -33,8 +33,8 @@
 ## Packaging & publishing
 
 - Package id: `InferenceEngine.Core`; default version `1.1.0-dev` in csproj, overridden in CI.
-- CI versioning (`VERSION_PREFIX=1.0` repo variable + `github.run_number`): `development` → `<prefix>-dev.<run>` (e.g. `1.0.0-dev.11`), `staging` → `-rc`, `release` → `<prefix>.<run>`.
-- Publish NuGet workflow (`on: push: [development, staging, release]`): GitHub Packages (all three) + NuGet.org (release only, needs `nuget-org` env + `NUGET_API_KEY`).
+- CI versioning (`VERSION_PREFIX=1.0` repo variable + `github.run_number`): `development` → `<prefix>-dev.<run>` (e.g. `1.0.0-dev.11`), `main` → `-rc`, `release` → `<prefix>.<run>`.
+- Publish NuGet workflow (`on: push: [development, main, release]`): GitHub Packages (all three) + NuGet.org (release only, needs `nuget-org` env + `NUGET_API_KEY`).
 - GitHub Packages feed: `https://nuget.pkg.github.com/intel-agency/index.json` (consumers need a PAT with `read:packages`).
 
 ## Tool usage patterns
