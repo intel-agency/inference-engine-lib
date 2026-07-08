@@ -96,7 +96,7 @@
        The MIGraphX EP replaced the deprecated ROCm EP in ORT v1.24.1. The native package
        version now matches the base Microsoft.ML.OnnxRuntime managed bindings (both 1.24.1). -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.36" />
+    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.36" GeneratePathProperty="true" />
   </ItemGroup>
   <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
        No separate NuGet package exists for CoreML acceleration. -->
@@ -157,4 +157,20 @@
   <ItemGroup>
     <InternalsVisibleTo Include="InferenceEngine.Tests" />
   </ItemGroup>
+
+  <!-- M5: Standalone Core build must also resolve the MIGraphX-capable libonnxruntime.so (the
+       buildTransitive target only runs for CONSUMERS). Inline targets run when building Core
+       itself, and here the ROCm runtime is a DIRECT PackageReference so $(Pkg...) is populated. -->
+  <Target Name="ForceRocmOnnxRuntimeLibOnLinuxStandalone"
+          AfterTargets="Build"
+          Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <PropertyGroup>
+      <_RocmOrtLibStandalone>$(PkgInferenceEngine_ROCm_Runtime_linux_x64)/runtimes/linux-x64/native/libonnxruntime.so</_RocmOrtLibStandalone>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_RocmOrtLibStandalone)"
+          DestinationFiles="$(OutDir)libonnxruntime.so"
+          SkipUnchangedFiles="false"
+          ContinueOnError="true"
+          Condition="Exists('$(_RocmOrtLibStandalone)')" />
+  </Target>
 </Project>

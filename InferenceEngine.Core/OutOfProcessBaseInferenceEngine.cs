@@ -18,15 +18,27 @@ namespace InferenceEngine.Core;
 /// diagnostics surface (provider, fallback reason, ordered checks) is identical to the in-process engine.
 /// </summary>
 /// <remarks>
+/// <para>
 /// This base overrides <see cref="LoadAsync"/> and <see cref="PredictAsync"/> to marshal to the
 /// worker; it never creates an in-process <see cref="Microsoft.ML.OnnxRuntime.InferenceSession"/>.
 /// The consumer supplies the worker executable path (its own app launched with worker args) and an
 /// <see cref="OutOfProcessEngineOptions"/>.
+/// </para>
+/// <para>
+/// <b>Congcurrency (H1):</b> all load/predict IPC is serialized by <see cref="_inFlight"/> so that
+/// concurrent calls never interleave write/read on the shared pipe (which would silently pair the
+/// wrong request with the wrong response). <see cref="Dispose"/> (M6) also takes that lock so it
+/// cannot tear down the pipe while a call is mid-flight.
+/// </para>
 /// </remarks>
-public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInferenceEngine<TInput, TOutput>
+public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInferenceEngine<TInput, TOutput>, IAsyncDisposable
 {
     private readonly OutOfProcessEngineOptions _oopOptions;
     private readonly IWorkerSerializer<TInput, TOutput> _serializer;
+
+    // Serializes all host↔worker IPC so concurrent PredictAsync calls cannot interleave their
+    // write/read pairs on the shared stdin/stdout pipe (H1). Dispose acquires it too (M6).
+    private readonly SemaphoreSlim _inFlight = new(1, 1);
 
     private Process? _process;
     private Stream? _toWorker;   // host → worker stdin
@@ -52,13 +64,30 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
     /// <summary>
     /// Spawn the worker, send <c>load</c>, and mirror the worker's <see cref="BaseInferenceEngine{TInput,TOutput}"/>.EngineInfo onto this
     /// proxy via <see cref="BaseInferenceEngine{TInput,TOutput}.ApplyLoadedState"/>. Does NOT build an
-    /// in-process session. Idempotent.
+    /// in-process session. Idempotent and thread-safe.
     /// </summary>
     public override async Task LoadAsync()
     {
-        if (_workerLoaded) return;
-        ThrowIfDisposed();
+        await _inFlight.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_workerLoaded) return;
+            await LoadLockedAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _inFlight.Release();
+        }
+    }
 
+    /// <summary>
+    /// Pre-loads the worker without holding a caller-visible lock re-entrancy. Assumes the caller
+    /// already holds <see cref="_inFlight"/>. Spawns the worker (once), sends <c>load</c>, and mirrors
+    /// the worker's diagnostics onto this proxy.
+    /// </summary>
+    private async Task LoadLockedAsync()
+    {
+        ThrowIfDisposed();
         StartWorker();
 
         var engineOpts = _oopOptions.EngineOptions;
@@ -73,7 +102,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
                 DeviceId = engineOpts.DeviceId,
                 WarmupOnLoad = engineOpts.WarmupOnLoad,
             },
-        }).ConfigureAwait(false);
+        }, _oopOptions.StartupTimeout).ConfigureAwait(false);
 
         var loaded = await ReadAsync(_oopOptions.StartupTimeout).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Worker closed the pipe during load.");
@@ -92,26 +121,41 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
     /// <summary>Marshal a <c>predict</c> to the worker and return its deserialized result.</summary>
     public override async Task<TOutput> PredictAsync(TInput input)
     {
-        if (!_workerLoaded) await LoadAsync().ConfigureAwait(false);
-        ThrowIfDisposed();
+        // Serialize the whole operation (auto-load + write + read) so two concurrent callers each
+        // pair their own request with their own response (H1). A second caller simply waits.
+        await _inFlight.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!_workerLoaded)
+                await LoadLockedAsync().ConfigureAwait(false);
+            ThrowIfDisposed();
 
-        await WriteAsync(new WorkerEnvelope { Kind = "predict", Payload = _serializer.SerializeInput(input) })
-            .ConfigureAwait(false);
+            await WriteAsync(new WorkerEnvelope { Kind = "predict", Payload = _serializer.SerializeInput(input) },
+                _oopOptions.InferenceTimeout).ConfigureAwait(false);
 
-        var result = await ReadAsync(_oopOptions.InferenceTimeout).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Worker closed the pipe during predict.");
+            var result = await ReadAsync(_oopOptions.InferenceTimeout).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Worker closed the pipe during predict.");
 
-        if (result.Error is not null)
-            throw new InvalidOperationException($"Worker predict failed: {result.Error}");
-        if (result.Payload is null)
-            throw new InvalidOperationException("Worker predict returned no payload.");
+            if (result.Error is not null)
+                throw new InvalidOperationException($"Worker predict failed: {result.Error}");
+            if (result.Payload is null)
+                throw new InvalidOperationException("Worker predict returned no payload.");
 
-        return _serializer.DeserializeOutput(result.Payload);
+            return _serializer.DeserializeOutput(result.Payload);
+        }
+        finally
+        {
+            _inFlight.Release();
+        }
     }
 
     // ---- plumbing -----------------------------------------------------------
 
-    private void StartWorker()
+    /// <summary>
+    /// Spawn the worker process and wire its stdin/stdout. Override in tests to bypass process
+    /// creation and inject in-memory streams (call <see cref="SetWorkerStreamsForTesting"/>).
+    /// </summary>
+    protected virtual void StartWorker()
     {
         // Clean up any previously-started worker (e.g. a Load retry after a failure) BEFORE spawning
         // a new one, to avoid leaking worker processes / GPU memory.
@@ -156,24 +200,63 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         _fromWorker = _process.StandardOutput.BaseStream;
     }
 
-    private async Task WriteAsync(WorkerEnvelope envelope)
+    /// <summary>Test seam: wire the host↔worker streams directly without spawning a process.</summary>
+    internal void SetWorkerStreamsForTesting(Stream toWorker, Stream fromWorker)
+    {
+        _toWorker = toWorker;
+        _fromWorker = fromWorker;
+    }
+
+    private async Task WriteAsync(WorkerEnvelope envelope, TimeSpan timeout)
     {
         ThrowIfDisposed();
-        await WorkerFrame.WriteAsync(_toWorker!, envelope, CancellationToken.None).ConfigureAwait(false);
+        // Race the write against a timeout. Redirected stdin pipes do not reliably honor
+        // cancellation, so on timeout we kill the worker (closing the read end of stdin) to unblock
+        // the pending write and then surface a TimeoutException (H2).
+        // Task.WaitAsync(TimeSpan) avoids the Task.Delay timer leak that Task.WhenAny would cause on
+        // this per-prediction hot path.
+        var writeTask = WorkerFrame.WriteAsync(_toWorker!, envelope, CancellationToken.None);
+        try
+        {
+            await writeTask.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            KillWorker();
+            throw new TimeoutException($"Worker did not accept a write within {timeout}.");
+        }
     }
 
     private async Task<WorkerEnvelope?> ReadAsync(TimeSpan timeout)
     {
         ThrowIfDisposed();
-        using var cts = new CancellationTokenSource(timeout);
+        // Redirected process stdout pipes do not promptly honor CancellationToken, so race the read
+        // against a timeout; on expiry kill the worker and dispose the read stream to unblock the
+        // pending read, then surface a TimeoutException (H2).
+        // Task.WaitAsync(TimeSpan) avoids the Task.Delay timer leak that Task.WhenAny would cause on
+        // this per-prediction hot path.
+        var readTask = WorkerFrame.ReadAsync(_fromWorker!, CancellationToken.None);
         try
         {
-            return await WorkerFrame.ReadAsync(_fromWorker!, cts.Token).ConfigureAwait(false);
+            return await readTask.WaitAsync(timeout).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (TimeoutException)
         {
+            KillWorker();
             throw new TimeoutException($"Worker did not respond within {timeout}.");
         }
+    }
+
+    /// <summary>
+    /// Forcefully terminates the worker process and disposes the host-side streams so any pending
+    /// blocked read/write on the pipe unblocks. Best-effort; swallow teardown errors.
+    /// </summary>
+    private void KillWorker()
+    {
+        try { if (_process is not null && !_process.HasExited) _process.Kill(); }
+        catch { /* best-effort */ }
+        try { _fromWorker?.Dispose(); } catch { /* best-effort */ }
+        try { _toWorker?.Dispose(); } catch { /* best-effort */ }
     }
 
     private void ThrowIfDisposed()
@@ -181,42 +264,113 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         if (_disposed) throw new ObjectDisposedException(nameof(OutOfProcessBaseInferenceEngine<TInput, TOutput>));
     }
 
+    /// <summary>
+    /// Asynchronously tears down the worker: sends a graceful <c>shutdown</c> frame without
+    /// blocking, then disposes the pipe/process and base session. Prefer
+    /// <c>await using</c> over the synchronous <see cref="Dispose"/> — the synchronous path cannot
+    /// (and must not) perform a sync-over-async write.
+    /// </summary>
+    public virtual async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            await _inFlight.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    await SendShutdownFrameAsync().ConfigureAwait(false);
+                    TearDownPipeAndProcess();
+                }
+            }
+            finally
+            {
+                _inFlight.Release();
+            }
+            _inFlight.Dispose();
+        }
+
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>Best-effort asynchronous graceful-shutdown frame, only when a live pipe + process exist.</summary>
+    private async ValueTask SendShutdownFrameAsync()
+    {
+        try
+        {
+            if (_toWorker is not null && _process is not null && !_process.HasExited)
+            {
+                try
+                {
+                    await WorkerFrame.WriteAsync(_toWorker, new WorkerEnvelope { Kind = "shutdown" }, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch { /* best-effort */ }
+            }
+        }
+        catch { /* swallow teardown errors */ }
+    }
+
+    /// <summary>
+    /// Disposes the host side of the pipe and the worker process. Disposing stdin FIRST closes the
+    /// worker's read end, which signals EOF and unblocks any pending stdout/stderr write so
+    /// <see cref="Process.WaitForExit(int)"/> cannot deadlock; then the process is reaped/killed.
+    /// </summary>
+    private void TearDownPipeAndProcess()
+    {
+        try { _toWorker?.Dispose(); } catch { /* best-effort */ }
+        try { _fromWorker?.Dispose(); } catch { /* best-effort */ }
+        _toWorker = null;
+        _fromWorker = null;
+
+        try
+        {
+            if (_process is not null && !_process.HasExited)
+            {
+                if (!_process.WaitForExit(2000))
+                    try { _process.Kill(); } catch { /* best-effort */ }
+            }
+        }
+        catch { /* swallow teardown errors */ }
+
+        _process?.Dispose();
+        _process = null;
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_disposed)
         {
-            _disposed = true;
-
-            // Best-effort graceful shutdown — only when we actually have a live pipe + process.
+            // Take the in-flight lock (M6) so Dispose cannot tear down the pipe while a Load/Predict is
+            // mid-write/read. In-flight IPC either completes or times out (H2) before releasing the lock.
+            _inFlight.Wait();
             try
             {
-                if (_toWorker is not null && _process is not null && !_process.HasExited)
+                if (!_disposed)
                 {
-                    try { WorkerFrame.Write(_toWorker, new WorkerEnvelope { Kind = "shutdown" }); }
+                    _disposed = true;
+                    // Best-effort graceful shutdown via the synchronous WorkerFrame.Write (added on
+                    // main) — this avoids the sync-over-async .GetAwaiter().GetResult() that
+                    // originally lived here, while still sending an explicit shutdown frame (better
+                    // than relying on stdin EOF alone). Only sent when a live pipe + process exist;
+                    // the async DisposeAsync path sends the same frame without blocking.
+                    try
+                    {
+                        if (_toWorker is not null && _process is not null && !_process.HasExited)
+                            WorkerFrame.Write(_toWorker, new WorkerEnvelope { Kind = "shutdown" });
+                    }
                     catch { /* best-effort */ }
+                    TearDownPipeAndProcess();
                 }
             }
-            catch { /* swallow teardown errors */ }
-
-            // Dispose the streams FIRST: closing stdin signals EOF to the worker (unblocking any
-            // pending stdout/stderr write) so WaitForExit cannot deadlock; closing stdout ends our read side.
-            _toWorker?.Dispose();
-            _fromWorker?.Dispose();
-            _toWorker = null;
-            _fromWorker = null;
-
-            try
+            finally
             {
-                if (_process is not null && !_process.HasExited)
-                {
-                    if (!_process.WaitForExit(2000))
-                        try { _process.Kill(); } catch { /* best-effort */ }
-                }
+                _inFlight.Release();
             }
-            catch { /* swallow teardown errors */ }
 
-            _process?.Dispose();
-            _process = null;
+            _inFlight.Dispose();
         }
         base.Dispose(disposing);
     }

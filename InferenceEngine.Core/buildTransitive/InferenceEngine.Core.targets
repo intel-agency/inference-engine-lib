@@ -13,13 +13,21 @@
        hosts: BaseInferenceEngine falls back to CPU with a managed exception when the
        HIP/MIGraphX runtime is absent.
 
-       The version is pinned to the InferenceEngine.ROCm.Runtime this package depends on;
-       bump it together with the PackageReference in InferenceEngine.Core.csproj. -->
+       The resolved path does NOT hardcode the version: it prefers the $(Pkg...) path
+       property (set when this package is referenced directly) and falls back to a glob of
+       the NuGet package cache, so bumping the PackageReference in InferenceEngine.Core.csproj
+       resolves automatically. -->
   <Target Name="ForceRocmOnnxRuntimeLibOnLinux"
           AfterTargets="Build"
           Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <ItemGroup>
+      <_RocmOrtLibGlob Include="$(NuGetPackageRoot)inferenceengine.rocm.runtime.linux-x64/*/runtimes/linux-x64/native/libonnxruntime.so" />
+    </ItemGroup>
     <PropertyGroup>
-      <_RocmOrtLib>$(NuGetPackageRoot)inferenceengine.rocm.runtime.linux-x64/1.24.1.36/runtimes/linux-x64/native/libonnxruntime.so</_RocmOrtLib>
+      <_RocmOrtLib Condition="'$(PkgInferenceEngine_ROCm_Runtime_linux_x64)' != ''">$(PkgInferenceEngine_ROCm_Runtime_linux_x64)/runtimes/linux-x64/native/libonnxruntime.so</_RocmOrtLib>
+    </PropertyGroup>
+    <PropertyGroup Condition="!Exists('$(_RocmOrtLib)') And '@(_RocmOrtLibGlob->Count())' != '0'">
+      <_RocmOrtLib>%(_RocmOrtLibGlob.Identity)</_RocmOrtLib>
     </PropertyGroup>
     <Copy SourceFiles="$(_RocmOrtLib)"
           DestinationFiles="$(OutDir)libonnxruntime.so"

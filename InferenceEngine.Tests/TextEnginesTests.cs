@@ -176,6 +176,74 @@ public sealed class TextEnginesTests : IDisposable
         Assert.IsType<DenseTensor<int>>(ids.Value);
     }
 
+    // T4 (H3): the one-step-delayed delta decode reconstructs the full one-shot decode exactly,
+    // even when the tokenizer is NOT prefix-monotonic (SentencePiece byte-fallback: appending an id
+    // mutates a previously-emitted U+FFFD). The old substring-by-length logic dropped/duplicated
+    // text here. Driven purely through the internal AdvanceDecodeState with a fake decode function.
+    [Fact]
+    public void DecodeDelta_ReconstructsFullEvenWhenPrefixMutates()
+    {
+        string Decode(IReadOnlyList<int> ids) => ids.Count switch
+        {
+            1 => "a",
+            2 => "a\uFFFD", // id #2 is a partial multi-byte sequence -> U+FFFD
+            3 => "abc",     // id #3 completes it -> the U+FFFD resolves to "bc"
+            4 => "abcd",
+            _ => throw new InvalidOperationException("unexpected id count"),
+        };
+
+        int[] ids = { 101, 102, 103, 104 };
+        var gen = new TextGenerationEngine.GenerationState(Array.Empty<int>());
+        var chunks = new List<string>();
+        for (int i = 0; i < ids.Length; i++)
+        {
+            bool isEos = i == ids.Length - 1;
+            chunks.Add(TextGenerationEngine.AdvanceDecodeState(gen, ids[i], isEos, Decode));
+        }
+
+        string streamed = string.Concat(chunks);
+        Assert.Equal(Decode(ids), streamed);        // one-shot == concat(stream)
+        Assert.DoesNotContain("\uFFFD", streamed);  // no stale replacement char leaked
+    }
+
+    // T4 (H3): regression guard — a normal prefix-monotonic decode also reconstructs exactly.
+    [Fact]
+    public void DecodeDelta_ReconstructsMonotonicPrefix()
+    {
+        string Decode(IReadOnlyList<int> ids) => string.Concat(ids.Select(i => (char)('a' + (i % 26))));
+        int[] ids = { 0, 1, 2, 3, 4 };
+
+        var gen = new TextGenerationEngine.GenerationState(Array.Empty<int>());
+        var chunks = new List<string>();
+        for (int i = 0; i < ids.Length; i++)
+        {
+            bool isEos = i == ids.Length - 1;
+            chunks.Add(TextGenerationEngine.AdvanceDecodeState(gen, ids[i], isEos, Decode));
+        }
+
+        Assert.Equal(Decode(ids), string.Concat(chunks));
+    }
+
+    // A custom decode callback that returns null must be treated as the empty string rather than
+    // throwing a NullReferenceException inside AdvanceDecodeState.
+    [Fact]
+    public void DecodeDelta_NullDecodeResult_TreatedAsEmpty()
+    {
+        string Decode(IReadOnlyList<int> ids) => null!;
+        int[] ids = { 0, 1 };
+
+        var gen = new TextGenerationEngine.GenerationState(Array.Empty<int>());
+        var chunks = new List<string>();
+        for (int i = 0; i < ids.Length; i++)
+        {
+            bool isEos = i == ids.Length - 1;
+            chunks.Add(TextGenerationEngine.AdvanceDecodeState(gen, ids[i], isEos, Decode));
+        }
+
+        Assert.Equal(string.Empty, string.Concat(chunks));
+        Assert.Equal(0, gen.EmittedLen);
+    }
+
     [SkippableFact]
     public async Task TextEmbeddingEngine_LoadsAndEmbeds_WhenNetworkAvailable()
     {

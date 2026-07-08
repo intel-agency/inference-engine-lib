@@ -7,7 +7,7 @@ namespace InferenceEngine.Tests;
 
 public sealed class StreamingInferenceEngineTests : IDisposable
 {
-    private readonly List<FakeStreamingEngine> _engines = [];
+    private readonly List<BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>> _engines = [];
 
     [Fact]
     public async Task Stream_YieldsExpectedTokens()
@@ -131,6 +131,146 @@ public sealed class StreamingInferenceEngineTests : IDisposable
         Assert.Equal(tokens.Length, engine.OutputCollectionsDisposed);
     }
 
+    // T3 (H4): the carry-forward state is IDisposable and the base loop disposes the prior state on
+    // step rollover and the final state on EOS — no KV-cache leak across a generation.
+    [Fact]
+    public async Task KvCarryState_DisposedOnRolloverAndEos()
+    {
+        var tokens = new[] { 10, 20, 30 };
+        var engine = new CarryTrackingEngine(tokens, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        var streamed = await ToListAsync(engine.PredictStreamingAsync(tokens.Length));
+
+        Assert.Equal(tokens, streamed);
+        // One state per step; all are disposed (prior on rollover + final on EOS).
+        Assert.Equal(tokens.Length, engine.StatesCreated);
+        Assert.Equal(tokens.Length, engine.StatesDisposed);
+    }
+
+    // T3 (H4): the carry state is disposed when the stream throws mid-generation.
+    [Fact]
+    public async Task KvCarryState_DisposedOnException()
+    {
+        var engine = new CarryTrackingEngine(new[] { 1, 2, 3 }, new InferenceEngineOptions(), throwOnStep: 1);
+        _engines.Add(engine);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await ToListAsync(engine.PredictStreamingAsync(3));
+        });
+
+        // The step-0 carry state must have been disposed in the iterator's finally.
+        Assert.Equal(1, engine.StatesCreated);
+        Assert.Equal(1, engine.StatesDisposed);
+    }
+
+    // T3 (H4): the carry state is disposed on cancellation too.
+    [Fact]
+    public async Task KvCarryState_DisposedOnCancellation()
+    {
+        var engine = new CarryTrackingEngine(new[] { 1, 2, 3, 4 }, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        using var cts = new CancellationTokenSource();
+        IAsyncEnumerator<int> e = engine
+            .PredictStreamingAsync(4, null, cts.Token).GetAsyncEnumerator(cts.Token);
+        try
+        {
+            Assert.True(await e.MoveNextAsync()); // step 0 (creates a carry state)
+            cts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await e.MoveNextAsync());
+        }
+        finally
+        {
+            await e.DisposeAsync();
+        }
+
+        Assert.Equal(1, engine.StatesCreated);
+        Assert.Equal(1, engine.StatesDisposed);
+    }
+
+    // T5: a partially-consumed enumerator that is properly disposed releases the single-in-flight
+    // guard, so a subsequent stream on the same instance works.
+    [Fact]
+    public async Task PartiallyConsumedEnumerator_DisposeReleasesInFlightGuard()
+    {
+        var tokens = new[] { 1, 2, 3, 4, 5 };
+        var engine = CreateEngine(tokens);
+
+        IAsyncEnumerator<int> e = engine.PredictStreamingAsync(tokens.Length).GetAsyncEnumerator();
+        try
+        {
+            Assert.True(await e.MoveNextAsync());
+            Assert.Equal(1, e.Current);
+            // Abandon early (but dispose properly per the streaming contract).
+        }
+        finally
+        {
+            await e.DisposeAsync();
+        }
+
+        // The guard was released; a fresh stream runs to completion.
+        var full = await ToListAsync(engine.PredictStreamingAsync(tokens.Length));
+        Assert.Equal(tokens, full);
+    }
+
+    // M3: temperature > 0 yields non-argmax sampling (the SamplingParams config is now honored).
+    [Fact]
+    public async Task Sampling_TemperaturePositive_ProducesNonArgmax()
+    {
+        var engine = new SamplingEngine(new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        // Uniform logits [5, 5, 5]: argmax is 0, but temperature sampling must sometimes pick 1 or 2.
+        var options = new StreamingOptions { MaxSteps = 60, Sampling = new SamplingParams { Temperature = 1f } };
+
+        var sampled = await ToListAsync(engine.PredictStreamingAsync(0, options));
+
+        Assert.NotEmpty(sampled);
+        Assert.Contains(sampled, t => t != 0);
+    }
+
+    // Top-k = 1 keeps only the single highest logit; softmax over one token is deterministic, so the
+    // argmax (token 1 of [1, 9, 3]) is always sampled. Exercises the allocation-free NthLargest path.
+    [Fact]
+    public async Task Sampling_TopK1_AlwaysSamplesArgmax()
+    {
+        var engine = new DistinctLogitsSamplingEngine(new float[] { 1f, 9f, 3f }, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        var options = new StreamingOptions
+        {
+            MaxSteps = 30,
+            Sampling = new SamplingParams { Temperature = 1f, TopK = 1 },
+        };
+
+        var sampled = await ToListAsync(engine.PredictStreamingAsync(0, options));
+
+        Assert.NotEmpty(sampled);
+        Assert.All(sampled, t => Assert.Equal(1, t));
+    }
+
+    // A very small top-p keeps only the single most-probable token, making sampling deterministic.
+    // Exercises the descending struct-comparer span sort in the nucleus-filtering path.
+    [Fact]
+    public async Task Sampling_TinyTopP_AlwaysSamplesArgmax()
+    {
+        var engine = new DistinctLogitsSamplingEngine(new float[] { 1f, 9f, 3f }, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        var options = new StreamingOptions
+        {
+            MaxSteps = 30,
+            Sampling = new SamplingParams { Temperature = 1f, TopP = 0.01f },
+        };
+
+        var sampled = await ToListAsync(engine.PredictStreamingAsync(0, options));
+
+        Assert.NotEmpty(sampled);
+        Assert.All(sampled, t => Assert.Equal(1, t));
+    }
+
     // --- Helpers ---
 
     private FakeStreamingEngine CreateEngine(IReadOnlyList<int> tokens)
@@ -230,5 +370,136 @@ public sealed class StreamingInferenceEngineTests : IDisposable
             => _empty.GetEnumerator();
 
         public void Dispose() => _onDispose();
+    }
+
+    // A streaming engine that returns a disposable carry state each step, so the base loop's
+    // KV-cache disposal contract (H4) can be observed. (No real ONNX tensors needed: the contract
+    // under test is "prior state disposed on rollover, final state disposed on stream end".)
+    private sealed class CarryTrackingEngine : BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>
+    {
+        private readonly IReadOnlyList<int> _tokens;
+        private readonly int _throwOnStep;
+
+        public int StatesCreated { get; private set; }
+        public int StatesDisposed { get; private set; }
+
+        public CarryTrackingEngine(IReadOnlyList<int> tokens, InferenceEngineOptions options, int throwOnStep = -1)
+            : base(options, NullLogger<CarryTrackingEngine>.Instance)
+        {
+            _tokens = tokens;
+            _throwOnStep = throwOnStep;
+        }
+
+        protected override string ModelName => "carry-track.onnx";
+        public override Task LoadAsync() => Task.CompletedTask;
+
+        protected override IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunStep(
+            IReadOnlyCollection<NamedOnnxValue> inputs)
+            => new FakeOutputCollection(() => { });
+
+        protected override (List<NamedOnnxValue> Inputs, object? BuildContext) BuildStepInputs(
+            int input, object? state, int step)
+            => (new List<NamedOnnxValue>(), step);
+
+        protected override (int Step, object? NextState, bool IsEos) ProcessStepOutputs(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, object? buildContext)
+        {
+            int step = (int)buildContext!;
+            if (step == _throwOnStep)
+                throw new InvalidOperationException("simulated mid-stream failure");
+
+            int token = _tokens[step];
+            bool isEos = step >= _tokens.Count - 1;
+            StatesCreated++;
+            var state = new TrackingCarryState(() => StatesDisposed++);
+            return (token, state, isEos);
+        }
+
+        protected override IReadOnlyList<int> BuildFinalOutput(IReadOnlyList<int> steps) => steps;
+    }
+
+    // Disposable carry state that reports its disposal, mirroring the KeyValueCacheState contract.
+    private sealed class TrackingCarryState : IDisposable
+    {
+        private readonly Action _onDispose;
+        private bool _disposed;
+
+        public TrackingCarryState(Action onDispose) => _onDispose = onDispose;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _onDispose();
+        }
+    }
+
+    // A streaming engine that emits uniform logits and routes sampling through the base
+    // SampleNextToken, so M3's temperature/top-k/top-p honoring is observable.
+    private sealed class SamplingEngine : BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>
+    {
+        public SamplingEngine(InferenceEngineOptions options)
+            : base(options, NullLogger<SamplingEngine>.Instance) { }
+
+        protected override string ModelName => "sampling.onnx";
+        public override Task LoadAsync() => Task.CompletedTask;
+
+        protected override IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunStep(
+            IReadOnlyCollection<NamedOnnxValue> inputs)
+            => new FakeOutputCollection(() => { });
+
+        protected override (List<NamedOnnxValue> Inputs, object? BuildContext) BuildStepInputs(
+            int input, object? state, int step)
+            => (new List<NamedOnnxValue>(), step);
+
+        protected override (int Step, object? NextState, bool IsEos) ProcessStepOutputs(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, object? buildContext)
+        {
+            int step = (int)buildContext!;
+            // Uniform logits over a 3-token vocab; argmax is 0.
+            Span<float> logits = stackalloc float[3] { 5f, 5f, 5f };
+            int sampled = SampleNextToken(logits);
+            int maxSteps = CurrentOptions?.MaxSteps ?? 256;
+            bool isEos = step >= maxSteps - 1;
+            return (sampled, null, isEos);
+        }
+
+        protected override IReadOnlyList<int> BuildFinalOutput(IReadOnlyList<int> steps) => steps;
+    }
+
+    // Like SamplingEngine but emits caller-supplied (typically distinct) logits, so top-k / top-p
+    // filtering is observable and can be asserted deterministically.
+    private sealed class DistinctLogitsSamplingEngine : BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>
+    {
+        private readonly float[] _logits;
+
+        public DistinctLogitsSamplingEngine(float[] logits, InferenceEngineOptions options)
+            : base(options, NullLogger<DistinctLogitsSamplingEngine>.Instance)
+        {
+            _logits = logits;
+        }
+
+        protected override string ModelName => "distinct-sampling.onnx";
+        public override Task LoadAsync() => Task.CompletedTask;
+
+        protected override IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunStep(
+            IReadOnlyCollection<NamedOnnxValue> inputs)
+            => new FakeOutputCollection(() => { });
+
+        protected override (List<NamedOnnxValue> Inputs, object? BuildContext) BuildStepInputs(
+            int input, object? state, int step)
+            => (new List<NamedOnnxValue>(), step);
+
+        protected override (int Step, object? NextState, bool IsEos) ProcessStepOutputs(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, object? buildContext)
+        {
+            int step = (int)buildContext!;
+            int sampled = SampleNextToken(_logits);
+            int maxSteps = CurrentOptions?.MaxSteps ?? 256;
+            bool isEos = step >= maxSteps - 1;
+            return (sampled, null, isEos);
+        }
+
+        protected override IReadOnlyList<int> BuildFinalOutput(IReadOnlyList<int> steps) => steps;
     }
 }

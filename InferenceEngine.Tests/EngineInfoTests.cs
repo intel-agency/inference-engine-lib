@@ -12,7 +12,7 @@ namespace InferenceEngine.Tests;
 public sealed class EngineInfoTests : IDisposable
 {
     private readonly string _testDir;
-    private readonly List<TestInfoEngine> _engines = [];
+    private readonly List<BaseInferenceEngine<string, string>> _engines = [];
 
     public EngineInfoTests()
     {
@@ -163,7 +163,7 @@ public sealed class EngineInfoTests : IDisposable
     }
 
     [SkippableFact]
-    public async Task EngineInfo_ProviderOptions_ReflectsMIGraphXOptions_WhenMIGraphXActive()
+    public async Task EngineInfo_ProviderOptions_ReflectsDeviceId_WhenMIGraphXActive()
     {
         Skip.IfNot(
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
@@ -185,7 +185,91 @@ public sealed class EngineInfoTests : IDisposable
 
         if (engine.EngineInfo.Provider == InferenceProvider.MIGraphX)
         {
-            Assert.Empty(engine.EngineInfo.ProviderOptions);
+            // M2: device_id is now surfaced as a real provider option (was a stub returning Empty).
+            Assert.NotEmpty(engine.EngineInfo.ProviderOptions);
+            Assert.Equal(engine.EngineInfo.DeviceId.ToString(), engine.EngineInfo.ProviderOptions["device_id"]);
+        }
+    }
+
+    // T1: the native-recoverable fallback branch — the most complex path — asserts
+    // FallbackReason == NativeLibraryLoadFailed plus the session.native-recoverable + cpu.fallback-*
+    // checks. Hermetic: the platform/probes/append are forced, and only the GPU session
+    // construction is faulted (recoverable), so this runs on any host with the ORT native lib.
+    [SkippableFact]
+    public async Task Fallback_NativeLibraryLoadFailed_RecoverableCpuFallback()
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+
+        var engine = new FaultInjectingEngine(
+            new InferenceEngineOptions
+            {
+                UseGpuAcceleration = true,
+                WarmupOnLoad = false,
+                ModelProvider = new LocalModelProvider(modelPath),
+            },
+            NullLogger<FaultInjectingEngine>.Instance,
+            FaultInjectingEngine.Mode.NativeSessionFailure);
+        _engines.Add(engine);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.NativeLibraryLoadFailed, engine.EngineInfo.FallbackReason);
+
+        AssertResult("migraphx.append", CheckResult.Passed);   // append succeeded (forced)
+        AssertResult("migraphx.session", CheckResult.Failed);   // GPU session construction faulted
+        AssertResult("session.native-recoverable", CheckResult.Passed);
+        AssertResult("cpu.fallback-options", CheckResult.Passed);
+        AssertResult("cpu.fallback-session", CheckResult.Passed);
+
+        void AssertResult(string name, CheckResult expected)
+        {
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == name);
+            Assert.NotNull(check);
+            Assert.Equal(expected, check!.Result);
+        }
+    }
+
+    // T2: AppendExecutionProvider_MIGraphX throwing after all preconditions pass (e.g. an ORT build
+    // without the EP) yields FallbackReason == ProviderAppendFailed with *.append Failed + *.session
+    // Skipped, then a successful CPU fallback. Hermetic on any host with the ORT native lib.
+    [SkippableFact]
+    public async Task Fallback_ProviderAppendFailed_WhenAppendThrows()
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+
+        var engine = new FaultInjectingEngine(
+            new InferenceEngineOptions
+            {
+                UseGpuAcceleration = true,
+                WarmupOnLoad = false,
+                ModelProvider = new LocalModelProvider(modelPath),
+            },
+            NullLogger<FaultInjectingEngine>.Instance,
+            FaultInjectingEngine.Mode.ProviderAppendFailure);
+        _engines.Add(engine);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.ProviderAppendFailed, engine.EngineInfo.FallbackReason);
+
+        AssertResult("migraphx.append", CheckResult.Failed);
+        AssertResult("migraphx.session", CheckResult.Skipped);
+        AssertResult("cpu.fallback-options", CheckResult.Passed);
+        AssertResult("cpu.fallback-session", CheckResult.Passed);
+
+        void AssertResult(string name, CheckResult expected)
+        {
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == name);
+            Assert.NotNull(check);
+            Assert.Equal(expected, check!.Result);
         }
     }
 
@@ -614,6 +698,67 @@ public sealed class EngineInfoTests : IDisposable
 
         protected override string ModelName => "test-info.onnx";
         protected override string[] ModelDownloadUrls => ["https://example.invalid/test-info.onnx"];
+
+        protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)
+            => ([], null);
+
+        protected override string PostProcessWithContext(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context)
+            => string.Empty;
+    }
+
+    /// <summary>
+    /// Test double that overrides the platform/probe/append/session-construction seams to drive the
+    /// complex fallback branches deterministically, on any host (no GPU required). It forces the
+    /// Linux-x64/MIGraphX branch, reports all native probes as loadable, and either makes the GPU
+    /// session construction throw a recoverable failure (T1) or the EP append throw (T2).
+    /// </summary>
+    private sealed class FaultInjectingEngine : BaseInferenceEngine<string, string>
+    {
+        public enum Mode { NativeSessionFailure, ProviderAppendFailure }
+
+        private readonly Mode _mode;
+        private int _sessionCalls;
+
+        public FaultInjectingEngine(InferenceEngineOptions options, ILogger? logger, Mode mode)
+            : base(options, logger)
+        {
+            _mode = mode;
+        }
+
+        protected override string ModelName => "fault-inject.onnx";
+        protected override string[]? ModelDownloadUrls => null;
+
+        // Force the MIGraphX branch regardless of the real host platform.
+        protected override HostPlatform EffectivePlatform => HostPlatform.LinuxX64;
+        protected override bool IsKfdPresent() => true;
+        protected override bool TryLoadNativeLibrary(string name, out string? error)
+        {
+            error = null;
+            return true;
+        }
+
+        protected override void AppendMIGraphXProvider(SessionOptions options, int deviceId)
+        {
+            if (_mode == Mode.ProviderAppendFailure)
+                throw new EntryPointNotFoundException("simulated: ORT built without the MIGraphX EP");
+            // NativeSessionFailure mode: pretend the append succeeded (do not call the real append,
+            // which would throw on non-ROCm hosts) so the branch returns MIGraphX and the GPU
+            // session construction is the step that faults.
+        }
+
+        protected override InferenceSession CreateInferenceSession(string modelPath, SessionOptions options)
+        {
+            // T1: the GPU session construction (first call) throws a recoverable native failure;
+            // the CPU fallback session (second call) is built for real.
+            if (_mode == Mode.NativeSessionFailure && _sessionCalls == 0)
+            {
+                _sessionCalls++;
+                throw new DllNotFoundException("simulated native load failure");
+            }
+            _sessionCalls++;
+            return base.CreateInferenceSession(modelPath, options);
+        }
 
         protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)
             => ([], null);

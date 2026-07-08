@@ -154,15 +154,16 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         ReadOnlySpan<float> lastRow = GetLastPositionLogitRow(logits);
         int sampled = SampleNextToken(lastRow);
 
-        gen.Ids.Add(sampled);
-
-        string fullDecoded = tokenizer.Decode(gen.Ids);
-        string delta = fullDecoded.Length > gen.DecodedLength
-            ? fullDecoded.Substring(gen.DecodedLength)
-            : string.Empty;
-        gen.DecodedLength = fullDecoded.Length;
-
         bool isEos = CurrentOptions?.EosTokenIds is { Count: > 0 } eos && eos.Contains(sampled);
+
+        // One-step-delayed delta decode: only emit text that is confirmed stable (the longest
+        // common prefix of the previous full decode and the current full decode). This is robust
+        // to SentencePiece byte-fallback, where appending one id can mutate a previously-emitted
+        // replacement char (U+FFFD) — a plain substring-by-length slice would emit wrong/lost
+        // chunks. On EOS the remaining (final) tail is flushed so string.Concat(stream) == Decode(all).
+        string delta = AdvanceDecodeState(
+            gen, sampled, isEos, ids => tokenizer.Decode(ids));
+
         return (delta, gen, isEos);
     }
 
@@ -270,16 +271,74 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         return NamedOnnxValue.CreateFromTensor(name, longTensor);
     }
 
+    /// <summary>
+    /// Advances the decode state by one sampled token and returns the text chunk to yield this
+    /// step. Pure except for mutating <paramref name="gen"/>; the <paramref name="decode"/>
+    /// callback lets tests drive it with a fake tokenizer that mutates the prefix.
+    /// </summary>
+    internal static string AdvanceDecodeState(
+        GenerationState gen, int sampled, bool isEos, Func<IReadOnlyList<int>, string> decode)
+    {
+        gen.Ids.Add(sampled);
+        // Defensive: a custom decode delegate could return null, which would otherwise cause a
+        // NullReferenceException in the Length/CommonPrefixLength/Substring calls below.
+        string currFull = decode(gen.Ids) ?? string.Empty;
+        int confirmed = CommonPrefixLength(gen.PrevFull, currFull);
+
+        // Guard the slice start: a non-monotonic decode (subword merges / control-char stripping)
+        // could shrink currFull below the already-emitted length. Fail with a descriptive error
+        // instead of letting Substring throw a generic ArgumentOutOfRangeException.
+        if (gen.EmittedLen > currFull.Length)
+        {
+            throw new InvalidOperationException(
+                $"Decoded text shrank below the already-emitted length " +
+                $"(emitted={gen.EmittedLen}, current={currFull.Length}); the tokenizer is not stable " +
+                $"for one-step-delayed delta decoding.");
+        }
+
+        string delta;
+        if (isEos)
+        {
+            // Flush the final tail: everything not yet emitted.
+            delta = currFull.Substring(gen.EmittedLen);
+            gen.EmittedLen = currFull.Length;
+        }
+        else if (confirmed > gen.EmittedLen)
+        {
+            // Emit the newly-confirmed stable region (common prefix with the previous full decode).
+            delta = currFull.Substring(gen.EmittedLen, confirmed - gen.EmittedLen);
+            gen.EmittedLen = confirmed;
+        }
+        else
+        {
+            delta = string.Empty;
+        }
+
+        gen.PrevFull = currFull;
+        return delta;
+    }
+
+    /// <summary>Length of the longest common leading character prefix of two strings.</summary>
+    internal static int CommonPrefixLength(string a, string b)
+    {
+        int max = Math.Min(a.Length, b.Length);
+        int i = 0;
+        while (i < max && a[i] == b[i]) i++;
+        return i;
+    }
+
     /// <summary>Carry-forward decode state for full-recompute generation.</summary>
-    private sealed class GenerationState
+    internal sealed class GenerationState
     {
         public List<int> Ids { get; }
-        public int DecodedLength { get; set; }
+        /// <summary>Full decoded text after the previous step (Decode of ids[0..n-1]).</summary>
+        public string PrevFull { get; set; } = string.Empty;
+        /// <summary>Number of leading chars of the current full decode that have been emitted.</summary>
+        public int EmittedLen { get; set; }
 
         public GenerationState(IReadOnlyList<int> ids)
         {
             Ids = new List<int>(ids);
-            DecodedLength = 0;
         }
     }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,6 +23,7 @@ namespace InferenceEngine.Core
         protected RunOptions? _runOptions;
 
         private bool _isLoaded = false;
+        private readonly SemaphoreSlim _loadLock = new(1, 1);
         private IModelProvider? _modelProvider;
         private List<ProviderDiagnosticCheck> _pendingChecks = new();
         private int _nextOrder = 0;
@@ -146,7 +148,12 @@ namespace InferenceEngine.Core
         /// </summary>
         public virtual async Task LoadAsync()
         {
-            if (_isLoaded) return;
+            // Serialize concurrent loads (H5): two concurrent LoadAsync calls must not both pass the
+            // _isLoaded guard and double-construct the session / corrupt the check list.
+            await _loadLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_isLoaded) return;
 
             _logger.LogInformation("Initializing Inference Engine...");
 
@@ -171,7 +178,7 @@ namespace InferenceEngine.Core
 
                         try
                         {
-                            _session = new InferenceSession(modelPath, sessionOptions);
+                            _session = CreateInferenceSession(modelPath, sessionOptions);
                             if (fallback != InferenceFallbackReason.None)
                             {
                                 _pendingChecks.Add(ProviderDiagnosticCheck.Pass("cpu.fallback-options", "CreateCpuOnlySessionOptions() succeeded", "Fallback", NextOrder()));
@@ -229,7 +236,7 @@ namespace InferenceEngine.Core
                         GpuAccelerationRequested = _options.UseGpuAcceleration,
                         IsFallback = fallback != InferenceFallbackReason.None,
                         FallbackReason = fallback,
-                        ProviderOptions = ExtractProviderOptions(provider),
+                        ProviderOptions = ExtractProviderOptions(provider, deviceId),
                         SessionCreatedAt = DateTimeOffset.UtcNow,
                         Checks = _pendingChecks.ToArray(),
                     };
@@ -246,12 +253,15 @@ namespace InferenceEngine.Core
                         provider, info.IsFallback, fallback, PrimaryInputName);
                     _isLoaded = true;
 
+                    // M4: fire the session-initialized callback BEFORE warmup (it documents that it
+                    // "fires once after the session is created"), so a long first-compile warmup does
+                    // not delay it and a warmup problem cannot prevent it.
+                    FireOnSessionInitialized(info);
+
                     if (_options.WarmupOnLoad)
                     {
                         PerformWarmup();
                     }
-
-                    FireOnSessionInitialized(info);
                 }
                 catch (Exception ex)
                 {
@@ -259,6 +269,11 @@ namespace InferenceEngine.Core
                     throw;
                 }
             });
+            }
+            finally
+            {
+                _loadLock.Release();
+            }
         }
 
         public virtual async Task<TOutput> PredictAsync(TInput input)
@@ -289,6 +304,50 @@ namespace InferenceEngine.Core
 
         // --- Internal/Protected Helpers ---
 
+        // Test seams (T1/T2): virtualize the platform/probe/append/session-construction steps so the
+        // most complex fallback branches can be exercised hermetically (on any CI host, with no GPU).
+        // Defaults reproduce the original behavior exactly.
+
+        /// <summary>Platform used to select the execution-provider branch. Override to force a branch in tests.</summary>
+        protected virtual HostPlatform EffectivePlatform => HostPlatformDetector.Current();
+
+        /// <summary>True when the ROCm KFD device node is present. Override in tests.</summary>
+        protected virtual bool IsKfdPresent() => File.Exists("/dev/kfd");
+
+        /// <summary>Attempts to dlopen a native library; returns success and an error message on failure.</summary>
+        protected virtual bool TryLoadNativeLibrary(string name, out string? error)
+        {
+            try
+            {
+                bool loaded = NativeLibrary.TryLoad(name, typeof(InferenceSession).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out var handle);
+                if (loaded && handle != IntPtr.Zero) NativeLibrary.Free(handle);
+                error = loaded ? null : "NativeLibrary.TryLoad returned false";
+                return loaded;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>Appends the MIGraphX execution provider. Override to inject a throw in tests.</summary>
+        protected virtual void AppendMIGraphXProvider(SessionOptions options, int deviceId)
+            => options.AppendExecutionProvider_MIGraphX(deviceId);
+
+        /// <summary>Appends the DirectML execution provider. Override to inject a throw in tests.</summary>
+        protected virtual void AppendDirectMlProvider(SessionOptions options, int deviceId)
+            => options.AppendExecutionProvider_DML(deviceId);
+
+        /// <summary>Appends the CoreML execution provider. Override to inject a throw in tests.</summary>
+        protected virtual void AppendCoreMlProvider(SessionOptions options, CoreMLFlags flags)
+            => options.AppendExecutionProvider_CoreML(flags);
+
+        /// <summary>Constructs the ONNX session. Override to inject a recoverable native failure in tests.</summary>
+        protected virtual InferenceSession CreateInferenceSession(string modelPath, SessionOptions options)
+            => new(modelPath, options);
+
         private int NextOrder() => _nextOrder++;
 
         private SessionOptions ConfiguredSessionOptions(
@@ -318,7 +377,7 @@ namespace InferenceEngine.Core
 
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("gpu.user-enabled", "UseGpuAcceleration is enabled", "Config", NextOrder()));
 
-            var platform = HostPlatformDetector.Current();
+            var platform = EffectivePlatform;
             var (sessionOptions, prov, fb, dev) = platform switch
             {
                 HostPlatform.LinuxX64 => TryRocmBranch(),
@@ -338,7 +397,7 @@ namespace InferenceEngine.Core
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("rid.platform", "Host is Linux x64", "Platform", NextOrder()));
             var deviceId = _options.DeviceId;
 
-            if (!File.Exists("/dev/kfd"))
+            if (!IsKfdPresent())
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("kfd.present", "/dev/kfd exists", "Provider", NextOrder(), "/dev/kfd not found"));
                 SkipRocmProviderChecks("precondition kfd.present failed");
@@ -346,42 +405,15 @@ namespace InferenceEngine.Core
             }
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("kfd.present", "/dev/kfd exists", "Provider", NextOrder()));
 
-            IntPtr hsaHandle = IntPtr.Zero;
-            bool hsaLoaded = false;
-            string? hsaError = null;
-            try
-            {
-                hsaLoaded = NativeLibrary.TryLoad("libhsa-runtime64.so", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out hsaHandle);
-            }
-            catch (Exception ex)
-            {
-                hsaError = ex.Message;
-            }
-
-            if (!hsaLoaded)
+            if (!TryLoadNativeLibrary("libhsa-runtime64.so", out var hsaError))
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder(), hsaError ?? "NativeLibrary.TryLoad returned false"));
                 SkipRocmProviderChecks("precondition hsa.dlopen failed", skipHsa: false);
                 return BuildCpuFallback(InferenceFallbackReason.HsaRuntimeUnloadable, deviceId);
             }
-            if (hsaHandle != IntPtr.Zero) NativeLibrary.Free(hsaHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", NextOrder()));
 
-            IntPtr hipHandle = IntPtr.Zero;
-            bool hipLoaded = false;
-            string? hipError = null;
-            try
-            {
-                hipLoaded = NativeLibrary.TryLoad("libamdhip64.so.7", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out hipHandle);
-            }
-            catch (Exception ex)
-            {
-                hipError = ex.Message;
-            }
-
-            if (!hipLoaded)
+            if (!TryLoadNativeLibrary("libamdhip64.so.7", out var hipError))
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder(),
                     hipError ?? "libamdhip64.so.7 not found. HIP runtime is required for MIGraphX GPU acceleration. " +
@@ -390,23 +422,9 @@ namespace InferenceEngine.Core
                 SkipRocmProviderChecks("precondition hip.dlopen failed", skipHsa: false, skipHip: false);
                 return BuildCpuFallback(InferenceFallbackReason.HipRuntimeMissing, deviceId);
             }
-            if (hipHandle != IntPtr.Zero) NativeLibrary.Free(hipHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("hip.dlopen", "libamdhip64.so.7 is loadable", "Provider", NextOrder()));
 
-            IntPtr mgxHandle = IntPtr.Zero;
-            bool mgxLoaded = false;
-            string? mgxError = null;
-            try
-            {
-                mgxLoaded = NativeLibrary.TryLoad("libmigraphx_c.so.3", typeof(InferenceSession).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32, out mgxHandle);
-            }
-            catch (Exception ex)
-            {
-                mgxError = ex.Message;
-            }
-
-            if (!mgxLoaded)
+            if (!TryLoadNativeLibrary("libmigraphx_c.so.3", out var mgxError))
             {
                 _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder(),
                     mgxError ?? "libmigraphx_c.so.3 not found. MIGraphX runtime is required for GPU-accelerated inference. " +
@@ -415,19 +433,18 @@ namespace InferenceEngine.Core
                 SkipRocmProviderChecks("precondition migraphx.dlopen failed", skipHsa: false, skipHip: false, skipMigraphxDlopen: false);
                 return BuildCpuFallback(InferenceFallbackReason.MIGraphXRuntimeMissing, deviceId);
             }
-            if (mgxHandle != IntPtr.Zero) NativeLibrary.Free(mgxHandle);
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("migraphx.dlopen", "libmigraphx_c.so.3 is loadable", "Provider", NextOrder()));
 
             var options = new SessionOptions { GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
             try
             {
-                options.AppendExecutionProvider_MIGraphX(deviceId);
-                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("migraphx.append", "AppendExecutionProvider_MIGraphX succeeded", "Provider", NextOrder()));
+                AppendMIGraphXProvider(options, deviceId);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("migraphx.append", "AppendExecutionProvider_MIGraphX", "Provider", NextOrder()));
                 return (options, InferenceProvider.MIGraphX, InferenceFallbackReason.None, deviceId);
             }
             catch (Exception ex)
             {
-                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.append", "AppendExecutionProvider_MIGraphX succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("migraphx.append", "AppendExecutionProvider_MIGraphX", "Provider", NextOrder(), ex.Message));
                 _pendingChecks.Add(ProviderDiagnosticCheck.Skip("migraphx.session", "MIGraphX InferenceSession construction", "Session", NextOrder(), "precondition migraphx.append failed"));
                 options.Dispose();
                 return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
@@ -458,13 +475,13 @@ namespace InferenceEngine.Core
 
             try
             {
-                options.AppendExecutionProvider_DML(deviceId);
-                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("dml.append", "AppendExecutionProvider_DML succeeded", "Provider", NextOrder()));
+                AppendDirectMlProvider(options, deviceId);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("dml.append", "AppendExecutionProvider_DML", "Provider", NextOrder()));
                 return (options, InferenceProvider.DirectML, InferenceFallbackReason.None, deviceId);
             }
             catch (Exception ex)
             {
-                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("dml.append", "AppendExecutionProvider_DML succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("dml.append", "AppendExecutionProvider_DML", "Provider", NextOrder(), ex.Message));
                 _pendingChecks.Add(ProviderDiagnosticCheck.Skip("dml.session", "DirectML InferenceSession construction", "Session", NextOrder(), "precondition dml.append failed"));
                 options.Dispose();
                 return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
@@ -479,13 +496,13 @@ namespace InferenceEngine.Core
 
             try
             {
-                options.AppendExecutionProvider_CoreML(CoreMLFlags.COREML_FLAG_ENABLE_ON_SUBGRAPH);
-                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("coreml.append", "AppendExecutionProvider_CoreML succeeded", "Provider", NextOrder()));
+                AppendCoreMlProvider(options, CoreMLFlags.COREML_FLAG_ENABLE_ON_SUBGRAPH);
+                _pendingChecks.Add(ProviderDiagnosticCheck.Pass("coreml.append", "AppendExecutionProvider_CoreML", "Provider", NextOrder()));
                 return (options, InferenceProvider.CoreML, InferenceFallbackReason.None, deviceId);
             }
             catch (Exception ex)
             {
-                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("coreml.append", "AppendExecutionProvider_CoreML succeeded", "Provider", NextOrder(), ex.Message));
+                _pendingChecks.Add(ProviderDiagnosticCheck.Fail("coreml.append", "AppendExecutionProvider_CoreML", "Provider", NextOrder(), ex.Message));
                 _pendingChecks.Add(ProviderDiagnosticCheck.Skip("coreml.session", "CoreML InferenceSession construction", "Session", NextOrder(), "precondition coreml.append failed"));
                 options.Dispose();
                 return BuildCpuFallback(InferenceFallbackReason.ProviderAppendFailed, deviceId);
@@ -528,7 +545,7 @@ namespace InferenceEngine.Core
             _pendingChecks.Add(ProviderDiagnosticCheck.Pass("cpu.fallback-options", "CreateCpuOnlySessionOptions() succeeded", "Fallback", NextOrder()));
             try
             {
-                _session = new InferenceSession(modelPath, cpuOptions);
+                _session = CreateInferenceSession(modelPath, cpuOptions);
                 _pendingChecks.Add(ProviderDiagnosticCheck.Pass("cpu.fallback-session", "CPU InferenceSession constructed", "Fallback", NextOrder()));
             }
             catch (Exception ex)
@@ -572,10 +589,18 @@ namespace InferenceEngine.Core
             FireOnSessionInitialized(engineInfo);
         }
 
-        private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider)
+        /// <summary>
+        /// Per-provider key/value options actually applied. At minimum surfaces <c>device_id</c> for
+        /// hardware-accelerated providers (MIGraphX/DirectML/CoreML); empty for CPU/Unknown.
+        /// </summary>
+        private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider, int deviceId)
         {
-            _ = provider;
-            return ImmutableDictionary<string, string>.Empty;
+            if (provider == InferenceProvider.Cpu || provider == InferenceProvider.Unknown)
+                return ImmutableDictionary<string, string>.Empty;
+
+            // Build the single-entry dictionary directly on the immutable tree instead of allocating
+            // a transient Dictionary<string,string> + ToImmutableDictionary() on every session init.
+            return ImmutableDictionary<string, string>.Empty.Add("device_id", deviceId.ToString());
         }
 
         private static SessionOptions CreateCpuOnlySessionOptions()
@@ -651,6 +676,7 @@ namespace InferenceEngine.Core
                 _runOptions?.Dispose();
                 _session = null;
                 _isLoaded = false;
+                _loadLock.Dispose();
             }
         }
     }

@@ -34,6 +34,19 @@ public sealed class OutOfProcessEngineTests
         Assert.Null(second);
     }
 
+    // M7: a corrupt/oversized length prefix (256 MiB) is rejected before allocating a huge buffer.
+    [Fact]
+    public async Task Framing_RejectsOversizedLengthPrefix_WithoutHugeAllocation()
+    {
+        using var ms = new MemoryStream();
+        // Corrupt prefix claiming 256 MiB — far above the 16 MiB cap. No payload bytes follow.
+        ms.Write(BitConverter.GetBytes(256 * 1024 * 1024), 0, 4);
+        ms.Position = 0;
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => WorkerFrame.ReadAsync(ms, CancellationToken.None));
+    }
+
     [Fact]
     public void Serializer_RoundTripsByteArrayAndString()
     {
