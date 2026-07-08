@@ -598,10 +598,9 @@ namespace InferenceEngine.Core
             if (provider == InferenceProvider.Cpu || provider == InferenceProvider.Unknown)
                 return ImmutableDictionary<string, string>.Empty;
 
-            return new Dictionary<string, string>
-            {
-                ["device_id"] = deviceId.ToString(),
-            }.ToImmutableDictionary();
+            // Build the single-entry dictionary directly on the immutable tree instead of allocating
+            // a transient Dictionary<string,string> + ToImmutableDictionary() on every session init.
+            return ImmutableDictionary<string, string>.Empty.Add("device_id", deviceId.ToString());
         }
 
         private static SessionOptions CreateCpuOnlySessionOptions()

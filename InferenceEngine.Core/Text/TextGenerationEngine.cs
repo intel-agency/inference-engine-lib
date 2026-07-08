@@ -280,7 +280,9 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
         GenerationState gen, int sampled, bool isEos, Func<IReadOnlyList<int>, string> decode)
     {
         gen.Ids.Add(sampled);
-        string currFull = decode(gen.Ids);
+        // Defensive: a custom decode delegate could return null, which would otherwise cause a
+        // NullReferenceException in the Length/CommonPrefixLength/Substring calls below.
+        string currFull = decode(gen.Ids) ?? string.Empty;
         int confirmed = CommonPrefixLength(gen.PrevFull, currFull);
 
         // Guard the slice start: a non-monotonic decode (subword merges / control-char stripping)

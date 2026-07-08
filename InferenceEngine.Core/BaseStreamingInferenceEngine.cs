@@ -208,7 +208,10 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
             {
                 order = ArrayPool<int>.Shared.Rent(vocab);
                 for (int i = 0; i < vocab; i++) order[i] = i;
-                Array.Sort(order, 0, vocab, Comparer<int>.Create((a, b) => probs[b].CompareTo(probs[a])));
+                // Sort token indices by descending probability without per-step allocation: a struct
+                // comparer is specialized by MemoryExtensions.Sort and never boxes, unlike
+                // Comparer<int>.Create(lambda), which allocates a Comparer + delegate every token.
+                order.AsSpan(0, vocab).Sort(new DescendingProbabilityIndexComparer(probs));
                 double cum = 0d;
                 bool reached = false;
                 for (int i = 0; i < vocab; i++)
@@ -270,25 +273,54 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
         return best;
     }
 
-    /// <summary>Returns the cutoff value of the k-th largest element (O(n) partial sort).
-    /// Takes a span so it can operate on a vocab-length slice of a (possibly larger) rented array.</summary>
+    /// <summary>Returns the cutoff value of the k-th largest element (allocation-free partial sort).
+    /// Maintains a sorted span of the k largest values seen; its minimum is the k-th largest.
+    /// Operates on a vocab-length slice of a (possibly larger) rented array. Allocation-free (uses
+    /// stackalloc for small k, an ArrayPool rental otherwise) so the hot sampling path never hits the
+    /// managed heap — the previous PriorityQueue approach allocated on every token-generation step.</summary>
     private static float NthLargest(ReadOnlySpan<float> values, int k)
     {
-        var heap = new PriorityQueue<float, float>(k);
-        for (int i = 0; i < values.Length; i++)
+        float[]? rented = null;
+        Span<float> temp = k <= 256 ? stackalloc float[k] : (rented = ArrayPool<float>.Shared.Rent(k));
+        try
         {
-            float v = values[i];
-            if (heap.Count < k)
+            temp.Fill(float.NegativeInfinity);
+            for (int i = 0; i < values.Length; i++)
             {
-                heap.Enqueue(v, v);
+                float v = values[i];
+                if (v <= temp[0]) continue;
+
+                // Insert v into the ascending-sorted top-k window, evicting the current minimum
+                // (temp[0]). BinarySearch gives the insertion point; shift the sub-slice left by one
+                // to drop the old minimum and place v at the now-vacated slot.
+                int index = temp.BinarySearch(v);
+                if (index < 0) index = ~index;
+                if (index > 1)
+                    temp.Slice(1, index - 1).CopyTo(temp.Slice(0, index - 1));
+                if (index > 0)
+                    temp[index - 1] = v;
             }
-            else if (v > heap.Peek())
-            {
-                heap.Dequeue();
-                heap.Enqueue(v, v);
-            }
+            return temp[0];
         }
-        return heap.Peek();
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<float>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>
+    /// Compares two array indices by the value they reference in descending order. A struct so that
+    /// the span sort helper can specialize it without boxing or any heap allocation (a delegate-based
+    /// comparer would allocate on every token-generation step).
+    /// </summary>
+    private readonly struct DescendingProbabilityIndexComparer : IComparer<int>
+    {
+        private readonly double[] _values;
+
+        public DescendingProbabilityIndexComparer(double[] values) => _values = values;
+
+        public int Compare(int a, int b) => _values[b].CompareTo(_values[a]);
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -54,17 +55,43 @@ internal static class WorkerFrame
 
     public static async Task<WorkerEnvelope?> ReadAsync(Stream stream, CancellationToken ct)
     {
-        var lengthBytes = await ReadExactAsync(stream, 4, ct).ConfigureAwait(false);
-        if (lengthBytes is null) return null; // clean EOF
+        // Rent the 4-byte length prefix instead of allocating it; a clean EOF here (the worker is
+        // gone before any frame bytes) is surfaced as a null return so the caller can shut down
+        // gracefully instead of throwing.
+        byte[]? prefix = null;
+        int length;
+        try
+        {
+            prefix = ArrayPool<byte>.Shared.Rent(4);
+            if (!await ReadExactIntoAsync(stream, prefix.AsMemory(0, 4), ct).ConfigureAwait(false))
+                return null; // clean EOF
+            length = BitConverter.ToInt32(prefix, 0);
+        }
+        finally
+        {
+            if (prefix is not null)
+                ArrayPool<byte>.Shared.Return(prefix);
+        }
 
-        var length = BitConverter.ToInt32(lengthBytes, 0);
         if (length <= 0) throw new InvalidDataException($"Invalid frame length: {length}.");
         if (length > MaxFrameBytes) throw new InvalidDataException($"Frame too large: {length} bytes.");
 
-        var payload = await ReadExactAsync(stream, length, ct).ConfigureAwait(false)
-            ?? throw new EndOfStreamException("Stream closed mid-frame.");
-
-        return JsonSerializer.Deserialize<WorkerEnvelope>(payload, WorkerJson.Options);
+        // Rent the payload buffer and deserialize straight from the rented span, then return it. This
+        // avoids allocating a fresh byte[length] on every IPC read; JsonSerializer.Deserialize copies
+        // the strings out, so the buffer is safe to return before this method exits.
+        byte[]? payload = null;
+        try
+        {
+            payload = ArrayPool<byte>.Shared.Rent(length);
+            if (!await ReadExactIntoAsync(stream, payload.AsMemory(0, length), ct).ConfigureAwait(false))
+                throw new EndOfStreamException("Stream closed mid-frame.");
+            return JsonSerializer.Deserialize<WorkerEnvelope>(payload.AsSpan(0, length), WorkerJson.Options);
+        }
+        finally
+        {
+            if (payload is not null)
+                ArrayPool<byte>.Shared.Return(payload);
+        }
     }
 
     public static async Task WriteAsync(Stream stream, WorkerEnvelope envelope, CancellationToken ct)
@@ -85,18 +112,25 @@ internal static class WorkerFrame
         stream.Flush();
     }
 
-    private static async Task<byte[]?> ReadExactAsync(Stream stream, int count, CancellationToken ct)
+    /// <summary>
+    /// Reads exactly <c>destination.Length</c> bytes into <paramref name="destination"/>. Returns
+    /// <see langword="false"/> on a clean EOF at the very start (zero bytes read) and throws
+    /// <see cref="EndOfStreamException"/> if the stream ends partway through. Used by
+    /// <see cref="ReadAsync"/> to distinguish graceful worker shutdown (null return) from a truncated
+    /// frame (throw). Reads into a caller-supplied buffer so no per-frame allocation occurs.
+    /// </summary>
+    private static async Task<bool> ReadExactIntoAsync(Stream stream, Memory<byte> destination, CancellationToken ct)
     {
-        var buffer = new byte[count];
-        var read = 0;
+        int read = 0;
+        int count = destination.Length;
         while (read < count)
         {
-            var n = await stream.ReadAsync(buffer.AsMemory(read, count - read), ct).ConfigureAwait(false);
+            var n = await stream.ReadAsync(destination.Slice(read, count - read), ct).ConfigureAwait(false);
             if (n == 0)
-                return read == 0 ? null : throw new EndOfStreamException("Stream closed mid-frame.");
+                return read == 0 ? false : throw new EndOfStreamException("Stream closed mid-frame.");
             read += n;
         }
-        return buffer;
+        return true;
     }
 }
 
