@@ -231,6 +231,67 @@ public sealed class StreamingInferenceEngineTests : IDisposable
         Assert.Contains(sampled, t => t != 0);
     }
 
+    // Top-k = 1 keeps only the single highest logit; softmax over one token is deterministic, so the
+    // argmax (token 1 of [1, 9, 3]) is always sampled. Exercises the allocation-free NthLargest path.
+    [Fact]
+    public async Task Sampling_TopK1_AlwaysSamplesArgmax()
+    {
+        var engine = new DistinctLogitsSamplingEngine(new float[] { 1f, 9f, 3f }, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        var options = new StreamingOptions
+        {
+            MaxSteps = 30,
+            Sampling = new SamplingParams { Temperature = 1f, TopK = 1 },
+        };
+
+        var sampled = await ToListAsync(engine.PredictStreamingAsync(0, options));
+
+        Assert.NotEmpty(sampled);
+        Assert.All(sampled, t => Assert.Equal(1, t));
+    }
+
+    // A very small top-p keeps only the single most-probable token, making sampling deterministic.
+    // Exercises the descending struct-comparer span sort in the nucleus-filtering path.
+    [Fact]
+    public async Task Sampling_TinyTopP_AlwaysSamplesArgmax()
+    {
+        var engine = new DistinctLogitsSamplingEngine(new float[] { 1f, 9f, 3f }, new InferenceEngineOptions());
+        _engines.Add(engine);
+
+        var options = new StreamingOptions
+        {
+            MaxSteps = 30,
+            Sampling = new SamplingParams { Temperature = 1f, TopP = 0.01f },
+        };
+
+        var sampled = await ToListAsync(engine.PredictStreamingAsync(0, options));
+
+        Assert.NotEmpty(sampled);
+        Assert.All(sampled, t => Assert.Equal(1, t));
+    }
+
+    // Regression guard for the allocation-free NthLargest. Rented ArrayPool buffers can be larger
+    // than the requested size; the window must track exactly k elements or temp[0] returns the wrong
+    // cutoff. k > 256 forces the ArrayPool rental path (stackalloc otherwise), which previously
+    // operated over the oversized buffer and tracked >k elements.
+    [Theory]
+    [InlineData(1)]     // stackalloc path
+    [InlineData(10)]    // stackalloc path
+    [InlineData(257)]   // ArrayPool path: Rent(257) may return a 512-length buffer
+    [InlineData(299)]   // ArrayPool path
+    public void NthLargest_ReturnsExactKthLargestValue(int k)
+    {
+        // Distinct ascending values: values[i] == i, so the k-th largest of 0..299 is (300 - k).
+        const int V = 300;
+        float[] values = new float[V];
+        for (int i = 0; i < V; i++) values[i] = i;
+
+        float cutoff = BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>.NthLargest(values, k);
+
+        Assert.Equal(V - k, cutoff);
+    }
+
     // --- Helpers ---
 
     private FakeStreamingEngine CreateEngine(IReadOnlyList<int> tokens)
@@ -419,6 +480,42 @@ public sealed class StreamingInferenceEngineTests : IDisposable
             // Uniform logits over a 3-token vocab; argmax is 0.
             Span<float> logits = stackalloc float[3] { 5f, 5f, 5f };
             int sampled = SampleNextToken(logits);
+            int maxSteps = CurrentOptions?.MaxSteps ?? 256;
+            bool isEos = step >= maxSteps - 1;
+            return (sampled, null, isEos);
+        }
+
+        protected override IReadOnlyList<int> BuildFinalOutput(IReadOnlyList<int> steps) => steps;
+    }
+
+    // Like SamplingEngine but emits caller-supplied (typically distinct) logits, so top-k / top-p
+    // filtering is observable and can be asserted deterministically.
+    private sealed class DistinctLogitsSamplingEngine : BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>
+    {
+        private readonly float[] _logits;
+
+        public DistinctLogitsSamplingEngine(float[] logits, InferenceEngineOptions options)
+            : base(options, NullLogger<DistinctLogitsSamplingEngine>.Instance)
+        {
+            _logits = logits;
+        }
+
+        protected override string ModelName => "distinct-sampling.onnx";
+        public override Task LoadAsync() => Task.CompletedTask;
+
+        protected override IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunStep(
+            IReadOnlyCollection<NamedOnnxValue> inputs)
+            => new FakeOutputCollection(() => { });
+
+        protected override (List<NamedOnnxValue> Inputs, object? BuildContext) BuildStepInputs(
+            int input, object? state, int step)
+            => (new List<NamedOnnxValue>(), step);
+
+        protected override (int Step, object? NextState, bool IsEos) ProcessStepOutputs(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, object? buildContext)
+        {
+            int step = (int)buildContext!;
+            int sampled = SampleNextToken(_logits);
             int maxSteps = CurrentOptions?.MaxSteps ?? 256;
             bool isEos = step >= maxSteps - 1;
             return (sampled, null, isEos);

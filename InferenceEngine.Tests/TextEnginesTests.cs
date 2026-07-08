@@ -224,6 +224,26 @@ public sealed class TextEnginesTests : IDisposable
         Assert.Equal(Decode(ids), string.Concat(chunks));
     }
 
+    // A custom decode callback that returns null must be treated as the empty string rather than
+    // throwing a NullReferenceException inside AdvanceDecodeState.
+    [Fact]
+    public void DecodeDelta_NullDecodeResult_TreatedAsEmpty()
+    {
+        string Decode(IReadOnlyList<int> ids) => null!;
+        int[] ids = { 0, 1 };
+
+        var gen = new TextGenerationEngine.GenerationState(Array.Empty<int>());
+        var chunks = new List<string>();
+        for (int i = 0; i < ids.Length; i++)
+        {
+            bool isEos = i == ids.Length - 1;
+            chunks.Add(TextGenerationEngine.AdvanceDecodeState(gen, ids[i], isEos, Decode));
+        }
+
+        Assert.Equal(string.Empty, string.Concat(chunks));
+        Assert.Equal(0, gen.EmittedLen);
+    }
+
     [SkippableFact]
     public async Task TextEmbeddingEngine_LoadsAndEmbeds_WhenNetworkAvailable()
     {
