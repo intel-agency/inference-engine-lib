@@ -10,11 +10,16 @@
 models with automatic hardware acceleration (MIGraphX on Linux/ROCm, DirectML on Windows, CoreML on
 macOS, with graceful CPU fallback). All three share the same lifecycle (`LoadAsync` → `PredictAsync`
 → `Dispose`), the same diagnostics (`EngineInfo` + ordered `Checks`), and the same model-download
-plumbing. **One-shot always works; the other two are pure additions.**
+plumbing. **One-shot always works; the other two are pure additions.** On top of those surfaces the library
+also ships **ready-made text engines** (embeddings + text generation) so most string-in/string-out
+consumers never write a subclass at all.
 
 ```xml
 <PackageReference Include="InferenceEngine.Core" Version="1.1.0-dev.13" />
 ```
+
+For full package-setup details (the GitHub Packages feed, `nuget.config`, credentials, CI, and
+version pinning) see [`inferenceapp-integration-guide.md`](inferenceapp-integration-guide.md).
 
 | Surface | Base class | Contract | Yields |
 |---|---|---|---|
@@ -305,10 +310,48 @@ that were tried and rejected.
 
 ---
 
-## Diagnostics across all three
+## D. Ready-made text engines
+
+For string-in/string-out work — embeddings and text generation — you do not need to write your own
+engine subclass. The library ships two ready-made engines in `InferenceEngine.Core.Text` that own
+tokenization and model-asset fetching end-to-end (via `Microsoft.ML.Tokenizers`):
+
+| Engine | Built on | Yields |
+|---|---|---|
+| `TextEmbeddingEngine` | One-shot (`BaseInferenceEngine<string, float[]>`) | L2-normalized embeddings from all-MiniLM-L6-v2 |
+| `TextGenerationEngine` | Streaming (`BaseStreamingInferenceEngine<string, string, string>`) | Streamed text chunks from Phi-3-mini-4k-instruct (cpu-int4) |
+
+```csharp
+using InferenceEngine.Core.Text;
+
+var options = new InferenceEngineOptions { UseGpuAcceleration = false };
+
+// Embeddings (one-shot)
+await using var embed = new TextEmbeddingEngine(options);
+await embed.LoadAsync();
+float[] vector = await embed.PredictAsync("docker container");
+
+// Generation (streaming — one-shot PredictAsync also works and returns the full text)
+await using var gen = new TextGenerationEngine(options);
+await foreach (string chunk in gen.PredictStreamingAsync("What is 2 + 2?"))
+    Console.Write(chunk);
+```
+
+Both reuse the same lifecycle, provider selection, and diagnostics as the surfaces above. **Note:**
+the Phi-3 int4 export is split across an `.onnx` graph and an `.onnx.data` sidecar — for real runs,
+point `InferenceEngineOptions.ModelPath` at a complete local bundle with both files co-located.
+
+### Detail
+
+[`text-engines-guide.md`](text-engines-guide.md) — tokenizers, input/output tensor handling, the
+full-recompute decode strategy, the `.onnx.data` limitation, and the tokenizer-asset cache.
+
+---
+
+## Diagnostics across all surfaces
 
 `EngineInfo`, `IsFallback`, `FallbackReason`, the ordered `Checks` trail, and the
-`OnSessionInitialized` callback **behave identically** across all three surfaces. For the
+`OnSessionInitialized` callback **behave identically** across all surfaces. For the
 out-of-process engine they are mirrored from the worker's `load` response, so a consumer cannot tell
 from the diagnostics API whether the session is in-process or in a worker.
 
@@ -328,11 +371,13 @@ crash triage.
 
 ## Example & spec locations
 
-| API | Reference example | Spec / guide |
+| Surface / feature | Reference example | Detail guide |
 |---|---|---|
 | A. One-shot | [`../InferenceEngine.Examples/FaceDetectionEngine.cs`](../InferenceEngine.Examples/FaceDetectionEngine.cs) | [`linux-rocm-config.md`](linux-rocm-config.md) |
 | B. Streaming | [`../InferenceEngine.Examples/StreamingTextGenerationExample.cs`](../InferenceEngine.Examples/StreamingTextGenerationExample.cs) | [`streaming-inference-guide.md`](streaming-inference-guide.md) |
 | C. Out-of-process | (your `Program.cs` `--worker` entry point + `OutOfProcessBaseInferenceEngine` subclass) | [`out-of-process-inference-engine-design.md`](out-of-process-inference-engine-design.md) |
+| D. Text engines | `TextEmbeddingEngine` / `TextGenerationEngine` (`InferenceEngine.Core.Text`) | [`text-engines-guide.md`](text-engines-guide.md) |
+| Package setup | — | [`inferenceapp-integration-guide.md`](inferenceapp-integration-guide.md) |
 
 ---
 
