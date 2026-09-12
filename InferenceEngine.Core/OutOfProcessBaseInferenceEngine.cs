@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using InferenceEngine.Core.Diagnostics;
 using InferenceEngine.Core.Worker;
 using Microsoft.Extensions.Logging;
 
@@ -72,6 +74,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         try
         {
             if (_workerLoaded) return;
+            SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading });
             await LoadLockedAsync().ConfigureAwait(false);
         }
         finally
@@ -88,7 +91,25 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
     private async Task LoadLockedAsync()
     {
         ThrowIfDisposed();
+        try
+        {
+            await LoadLockedCoreAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (Status.State != EngineLoadState.Failed)
+        {
+            // Pipe-level failure (worker died, timeout, EOF): no worker EngineInfo exists, but
+            // the failure still surfaces through the shared status object model.
+            SetStatus(new InferenceEngineStatus { State = EngineLoadState.Failed, LoadError = ex.Message });
+            throw;
+        }
+    }
+
+    private async Task LoadLockedCoreAsync()
+    {
+        var sw = Stopwatch.StartNew();
         StartWorker();
+        _logger.LogInformation("oop {EngineId}: worker spawned in {Elapsed}ms (pid={Pid}); sending load",
+            _oopOptions.EngineId, sw.ElapsedMilliseconds, TryGetWorkerPid());
 
         var engineOpts = _oopOptions.EngineOptions;
         await WriteAsync(new WorkerEnvelope
@@ -106,16 +127,37 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
 
         var loaded = await ReadAsync(_oopOptions.StartupTimeout).ConfigureAwait(false)
             ?? throw new InvalidOperationException("Worker closed the pipe during load.");
+        _logger.LogInformation("oop {EngineId}: load response received after {Elapsed}ms (provider={Provider}, fallback={IsFallback}, reason={FallbackReason})",
+            _oopOptions.EngineId, sw.ElapsedMilliseconds, loaded.EngineInfo?.Provider, loaded.EngineInfo?.IsFallback, loaded.EngineInfo?.FallbackReason);
 
         if (loaded.Error is not null)
+        {
+            _logger.LogError("oop {EngineId}: worker load error: {Error}", _oopOptions.EngineId, loaded.Error);
+            // Keep the worker's partial EngineInfo (checks run before the failure) in the status.
+            SetStatus(new InferenceEngineStatus
+            {
+                State = EngineLoadState.Failed,
+                Info = loaded.EngineInfo,
+                LoadError = loaded.Error,
+            });
             throw new InvalidOperationException($"Worker failed to load the engine: {loaded.Error}");
+        }
         if (loaded.EngineInfo is null)
+        {
+            _logger.LogError("oop {EngineId}: worker load response had no EngineInfo", _oopOptions.EngineId);
+            SetStatus(new InferenceEngineStatus
+            {
+                State = EngineLoadState.Failed,
+                LoadError = "Worker load response had no EngineInfo.",
+            });
             throw new InvalidOperationException("Worker load response had no EngineInfo.");
+        }
 
         // Mirror the worker's loaded diagnostics. Metadata (NodeMetadata) is ORT-specific and not
         // serialized in this revision; it stays null on the proxy (a follow-up can carry name/dims).
         ApplyLoadedState(loaded.EngineInfo, inputMetadata: null, outputMetadata: null, primaryInputName: null);
         _workerLoaded = true;
+        SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loaded, Info = loaded.EngineInfo });
     }
 
     /// <summary>Marshal a <c>predict</c> to the worker and return its deserialized result.</summary>
@@ -137,7 +179,10 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
                 ?? throw new InvalidOperationException("Worker closed the pipe during predict.");
 
             if (result.Error is not null)
+            {
+                _logger.LogError("oop {EngineId}: worker predict failed: {Error}", _oopOptions.EngineId, result.Error);
                 throw new InvalidOperationException($"Worker predict failed: {result.Error}");
+            }
             if (result.Payload is null)
                 throw new InvalidOperationException("Worker predict returned no payload.");
 
@@ -184,13 +229,26 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         foreach (var kv in _oopOptions.WorkerEnvironment)
             psi.Environment[kv.Key] = kv.Value;
 
-        _process = new Process { StartInfo = psi };
+        _logger.LogInformation("oop {EngineId}: spawning worker exe={Exe} args={Args} envOverrides={Env}",
+            _oopOptions.EngineId, _oopOptions.WorkerExecutablePath,
+            string.Join(" ", _oopOptions.WorkerArguments),
+            _oopOptions.WorkerEnvironment.Count == 0
+                ? "<none>"
+                : string.Join(",", _oopOptions.WorkerEnvironment.Select(kv => $"{kv.Key}={kv.Value}")));
+
+        _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         // Worker logs pass through to the host logger (stderr only; stdout is protocol-only).
         _process.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
                 _logger?.LogWarning("worker stderr: {Line}", e.Data);
         };
+        // An unexpected worker death mid-session is the classic "engine silently stops working"
+        // signature: capture the exit code forensically. Uses the sender (not the _process field)
+        // because teardown may null the field before the event fires.
+        _process.Exited += (sender, _) => _logger.LogWarning(
+            "oop {EngineId}: worker process exited (code={ExitCode})",
+            _oopOptions.EngineId, TryGetExitCode(sender as Process));
 
         if (!_process.Start())
             throw new InvalidOperationException($"Failed to start worker process: {_oopOptions.WorkerExecutablePath}");
@@ -198,6 +256,18 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         _process.BeginErrorReadLine();
         _toWorker = _process.StandardInput.BaseStream;
         _fromWorker = _process.StandardOutput.BaseStream;
+    }
+
+    private static int TryGetExitCode(Process? process)
+    {
+        try { return process is not null && process.HasExited ? process.ExitCode : -1; }
+        catch { return -1; }
+    }
+
+    private int? TryGetWorkerPid()
+    {
+        try { return _process?.Id; }
+        catch { return null; }
     }
 
     /// <summary>Test seam: wire the host↔worker streams directly without spawning a process.</summary>
@@ -222,6 +292,8 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         }
         catch (TimeoutException)
         {
+            _logger.LogError("oop {EngineId}: pipe write timed out after {Timeout}; killing worker",
+                _oopOptions.EngineId, timeout);
             KillWorker();
             throw new TimeoutException($"Worker did not accept a write within {timeout}.");
         }
@@ -242,6 +314,8 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         }
         catch (TimeoutException)
         {
+            _logger.LogError("oop {EngineId}: pipe read timed out after {Timeout}; killing worker",
+                _oopOptions.EngineId, timeout);
             KillWorker();
             throw new TimeoutException($"Worker did not respond within {timeout}.");
         }

@@ -178,6 +178,123 @@ public sealed class OutOfProcessEngineTests
         Assert.NotNull(result.Error);
     }
 
+    [Fact]
+    public async Task Proxy_LoadErrorFrame_StatusFailedWithPartialEngineInfo()
+    {
+        // Worker answers "load" with an error frame plus the partial EngineInfo it had built
+        // (provider selection ran, session construction failed). The proxy's status must carry
+        // both, mirrored onto the shared object model.
+        using var toWorker = new MemoryStream();
+        using var fromWorker = new MemoryStream();
+        var partialInfo = new InferenceEngineInfo
+        {
+            Provider = InferenceProvider.Cpu,
+            IsFallback = true,
+            FallbackReason = InferenceFallbackReason.HsaRuntimeUnloadable,
+            Checks = new[] { ProviderDiagnosticCheck.Fail("hsa.dlopen", "libhsa-runtime64.so is loadable", "Provider", 0, "dlerror") },
+        };
+        await WorkerFrame.WriteAsync(fromWorker, new WorkerEnvelope
+        {
+            Kind = "loaded",
+            EngineId = "e1",
+            EngineInfo = partialInfo,
+            Error = LoadExceptionMessage,
+        }, CancellationToken.None);
+        fromWorker.Position = 0;
+
+        var proxy = new NoSpawnProxy(MakeOptions("e1"));
+        proxy.SetWorkerStreamsForTesting(toWorker, fromWorker);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => proxy.LoadAsync());
+
+        Assert.Equal(EngineLoadState.Failed, proxy.Status.State);
+        Assert.Equal(LoadExceptionMessage, proxy.Status.LoadError);
+        Assert.NotNull(proxy.Status.Info);
+        Assert.Equal(InferenceFallbackReason.HsaRuntimeUnloadable, proxy.Status.Info!.FallbackReason);
+        Assert.Single(proxy.Status.Info.Checks);
+    }
+
+    [Fact]
+    public async Task Proxy_PipeEofDuringLoad_StatusFailedWithExceptionMessage()
+    {
+        using var toWorker = new MemoryStream();
+        using var fromWorker = new MemoryStream(); // empty: worker "died" before responding
+
+        var proxy = new NoSpawnProxy(MakeOptions("e1"));
+        proxy.SetWorkerStreamsForTesting(toWorker, fromWorker);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => proxy.LoadAsync());
+
+        Assert.Equal(EngineLoadState.Failed, proxy.Status.State);
+        Assert.Null(proxy.Status.Info);
+        Assert.Contains("closed the pipe", proxy.Status.LoadError);
+    }
+
+    [Fact]
+    public async Task Proxy_SuccessfulLoad_StatusLoadedWithMirroredInfo()
+    {
+        using var toWorker = new MemoryStream();
+        using var fromWorker = new MemoryStream();
+        await WorkerFrame.WriteAsync(fromWorker, new WorkerEnvelope
+        {
+            Kind = "loaded",
+            EngineId = "e1",
+            EngineInfo = new InferenceEngineInfo { Provider = InferenceProvider.Cpu },
+        }, CancellationToken.None);
+        fromWorker.Position = 0;
+
+        var proxy = new NoSpawnProxy(MakeOptions("e1"));
+        proxy.SetWorkerStreamsForTesting(toWorker, fromWorker);
+
+        await proxy.LoadAsync();
+
+        Assert.Equal(EngineLoadState.Loaded, proxy.Status.State);
+        Assert.Equal(InferenceProvider.Cpu, proxy.Status.Info?.Provider);
+        Assert.Null(proxy.Status.LoadError);
+        Assert.False(proxy.Status.IsGpuActive);
+    }
+
+    [Fact]
+    public async Task Proxy_LoadStatusChanges_FiredThroughCallback()
+    {
+        using var toWorker = new MemoryStream();
+        using var fromWorker = new MemoryStream();
+        await WorkerFrame.WriteAsync(fromWorker, new WorkerEnvelope
+        {
+            Kind = "loaded",
+            EngineId = "e1",
+            EngineInfo = new InferenceEngineInfo { Provider = InferenceProvider.MIGraphX, DeviceId = 0 },
+        }, CancellationToken.None);
+        fromWorker.Position = 0;
+
+        var options = MakeOptions("e1");
+        var observed = new List<InferenceEngineStatus>();
+        options.EngineOptions.OnStatusChanged = s => observed.Add(s);
+        var proxy = new NoSpawnProxy(options);
+        proxy.SetWorkerStreamsForTesting(toWorker, fromWorker);
+
+        await proxy.LoadAsync();
+
+        Assert.Equal(new[] { EngineLoadState.Loading, EngineLoadState.Loaded },
+            observed.Select(s => s.State).ToArray());
+        Assert.True(observed[^1].IsGpuActive);
+    }
+
+    private static OutOfProcessEngineOptions MakeOptions(string engineId) => new()
+    {
+        WorkerExecutablePath = "unused",
+        WorkerArguments = ["--worker", engineId],
+        EngineId = engineId,
+        StartupTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    // Proxy with process spawning disabled: streams are injected directly.
+    private sealed class NoSpawnProxy(OutOfProcessEngineOptions options)
+        : OutOfProcessBaseInferenceEngine<string, string>(options)
+    {
+        protected override void StartWorker() { /* no process; streams injected by the test */ }
+    }
+
     private const string LoadExceptionMessage = "boom: load failed";
 
     // A minimal BaseInferenceEngine subclass that does NOT load a real ONNX session.

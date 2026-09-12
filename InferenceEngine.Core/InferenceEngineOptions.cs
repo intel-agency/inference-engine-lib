@@ -42,6 +42,20 @@ namespace InferenceEngine.Core
         public bool WarmupOnLoad { get; set; } = true;
 
         /// <summary>
+        /// Optional callback invoked on every engine status transition (Loading → Loaded or
+        /// Failed), on the LoadAsync thread pool thread. Receives the full
+        /// <see cref="Diagnostics.InferenceEngineStatus"/> object model — on failure its
+        /// <c>Info</c> carries the partial provider-selection trail and <c>LoadError</c> the
+        /// error. Exceptions thrown by the callback are caught and logged as warnings; they do
+        /// not abort the engine.
+        /// <para>
+        /// This is the recommended hook; <see cref="OnSessionInitialized"/> remains as the
+        /// success-only equivalent.
+        /// </para>
+        /// </summary>
+        public Action<Diagnostics.InferenceEngineStatus>? OnStatusChanged { get; set; }
+
+        /// <summary>
         /// Optional callback invoked once, on the LoadAsync thread pool thread, after the session
         /// is created (including fallback paths). Receives the fully-populated InferenceEngineInfo.
         /// Exceptions thrown by the callback are caught and logged as warnings; they do not

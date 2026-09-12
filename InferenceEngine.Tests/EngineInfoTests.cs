@@ -49,6 +49,96 @@ public sealed class EngineInfoTests : IDisposable
     }
 
     [SkippableFact]
+    public async Task EngineInfo_AfterLoad_ReportsModelIdentityAndSource()
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+
+        var engine = CreateEngine(new InferenceEngineOptions
+        {
+            UseGpuAcceleration = false,
+            WarmupOnLoad = false,
+            ModelProvider = new LocalModelProvider(modelPath),
+        });
+
+        await engine.LoadAsync();
+
+        Assert.Equal("test-info.onnx", engine.EngineInfo.ModelName);
+        Assert.Equal(modelPath, engine.EngineInfo.ModelPath);
+        Assert.Equal(ModelSource.ExplicitPath, engine.EngineInfo.ModelSource);
+    }
+
+    [Fact]
+    public async Task Status_ModelResolutionFailure_IsFailedWithLoadErrorAndLoadingTransition()
+    {
+        // Hermetic failure: the model is not in the registry and the engine specifies no URLs,
+        // so LoadAsync throws before any session/provider work. The status object model must
+        // still show the full transition sequence and the error.
+        var statuses = new List<InferenceEngineStatus>();
+        var options = new InferenceEngineOptions
+        {
+            UseGpuAcceleration = false,
+            WarmupOnLoad = false,
+            OnStatusChanged = s => statuses.Add(s),
+        };
+        var engine = new UnregisteredModelEngine(options);
+        _engines.Add(engine);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => engine.LoadAsync());
+
+        Assert.Equal(new[] { EngineLoadState.Loading, EngineLoadState.Failed },
+            statuses.Select(s => s.State).ToArray());
+        Assert.Equal(EngineLoadState.Failed, engine.Status.State);
+        Assert.Contains("not-in-registry.onnx", engine.Status.LoadError);
+        Assert.NotNull(engine.Status.Info); // partial info (empty checks: failure predated selection)
+    }
+
+    [Fact]
+    public async Task Status_ThrowingCallback_IsSwallowedAndDoesNotAffectEngine()
+    {
+        var options = new InferenceEngineOptions
+        {
+            UseGpuAcceleration = false,
+            WarmupOnLoad = false,
+            OnStatusChanged = _ => throw new FormatException("consumer callback blew up"),
+        };
+        var engine = new UnregisteredModelEngine(options);
+        _engines.Add(engine);
+
+        // The load itself fails (registry miss — InvalidOperationException); the callback's
+        // FormatException must NOT replace or mask it.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.LoadAsync());
+        Assert.DoesNotContain("consumer callback", ex.Message);
+        Assert.Equal(EngineLoadState.Failed, engine.Status.State);
+    }
+
+    [SkippableFact]
+    public async Task Status_SuccessfulLoad_TransitionsLoadingThenLoadedWithSameInfo()
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var statuses = new List<InferenceEngineStatus>();
+        var engine = CreateEngine(new InferenceEngineOptions
+        {
+            UseGpuAcceleration = false,
+            WarmupOnLoad = false,
+            ModelProvider = new LocalModelProvider(modelPath),
+            OnStatusChanged = s => statuses.Add(s),
+        });
+
+        await engine.LoadAsync();
+
+        Assert.Equal(new[] { EngineLoadState.Loading, EngineLoadState.Loaded },
+            statuses.Select(s => s.State).ToArray());
+        Assert.Equal(EngineLoadState.Loaded, engine.Status.State);
+        Assert.Same(engine.EngineInfo, engine.Status.Info);
+        Assert.False(engine.Status.IsGpuActive); // CPU by request
+    }
+
+
+    [SkippableFact]
     public async Task EngineInfo_GpuDisabled_CpuWithUserDisabledGpu()
     {
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
@@ -698,6 +788,23 @@ public sealed class EngineInfoTests : IDisposable
 
         protected override string ModelName => "test-info.onnx";
         protected override string[] ModelDownloadUrls => ["https://example.invalid/test-info.onnx"];
+
+        protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)
+            => ([], null);
+
+        protected override string PostProcessWithContext(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context)
+            => string.Empty;
+    }
+
+    /// <summary>Engine whose model is neither registered nor downloadable — drives the hermetic
+    /// model-resolution failure path (no network, no native session).</summary>
+    private sealed class UnregisteredModelEngine : BaseInferenceEngine<string, string>
+    {
+        public UnregisteredModelEngine(InferenceEngineOptions options)
+            : base(options, NullLogger<UnregisteredModelEngine>.Instance) { }
+
+        protected override string ModelName => "not-in-registry.onnx";
 
         protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)
             => ([], null);
