@@ -130,8 +130,12 @@ public sealed class EngineInfoTests : IDisposable
 
         await engine.LoadAsync();
 
-        Assert.Equal(new[] { EngineLoadState.Loading, EngineLoadState.Loaded },
-            statuses.Select(s => s.State).ToArray());
+        // The load narrates its phases via Detail before the terminal snapshot.
+        Assert.Equal(
+            new[] { "Resolving model…", "Selecting execution provider…", "Constructing inference session…" },
+            statuses.Where(s => s.State == EngineLoadState.Loading).Select(s => s.Detail).ToArray());
+        Assert.Equal(EngineLoadState.Loaded, statuses[^1].State);
+        Assert.Null(statuses[^1].Detail);
         Assert.Equal(EngineLoadState.Loaded, engine.Status.State);
         Assert.Same(engine.EngineInfo, engine.Status.Info);
         Assert.False(engine.Status.IsGpuActive); // CPU by request

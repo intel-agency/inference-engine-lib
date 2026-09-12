@@ -42,6 +42,11 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
     // write/read pairs on the shared stdin/stdout pipe (H1). Dispose acquires it too (M6).
     private readonly SemaphoreSlim _inFlight = new(1, 1);
 
+    // Serializes this proxy's status transitions with the stderr sniffing path
+    // (HandleWorkerStderrLine): a compile marker racing a terminal transition must be dropped,
+    // never regress Loaded/Failed back to Loading.
+    private readonly object _statusGate = new();
+
     private Process? _process;
     private Stream? _toWorker;   // host → worker stdin
     private Stream? _fromWorker; // worker stdout → host
@@ -74,7 +79,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         try
         {
             if (_workerLoaded) return;
-            SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading });
+            TransitionStatus(new InferenceEngineStatus { State = EngineLoadState.Loading, Detail = "Starting engine worker…" });
             await LoadLockedAsync().ConfigureAwait(false);
         }
         finally
@@ -99,7 +104,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         {
             // Pipe-level failure (worker died, timeout, EOF): no worker EngineInfo exists, but
             // the failure still surfaces through the shared status object model.
-            SetStatus(new InferenceEngineStatus { State = EngineLoadState.Failed, LoadError = ex.Message });
+            TransitionStatus(new InferenceEngineStatus { State = EngineLoadState.Failed, LoadError = ex.Message });
             throw;
         }
     }
@@ -110,6 +115,10 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         StartWorker();
         _logger.LogInformation("oop {EngineId}: worker spawned in {Elapsed}ms (pid={Pid}); sending load",
             _oopOptions.EngineId, sw.ElapsedMilliseconds, TryGetWorkerPid());
+        // From here the worker owns the timeline (provider selection, session construction, the
+        // ~1-2 min first-run MIGraphX kernel compile); stderr sniffing refines the Detail while
+        // we wait for the load frame.
+        TransitionStatus(new InferenceEngineStatus { State = EngineLoadState.Loading, Detail = "Waiting for engine to load…" });
 
         var engineOpts = _oopOptions.EngineOptions;
         await WriteAsync(new WorkerEnvelope
@@ -134,7 +143,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         {
             _logger.LogError("oop {EngineId}: worker load error: {Error}", _oopOptions.EngineId, loaded.Error);
             // Keep the worker's partial EngineInfo (checks run before the failure) in the status.
-            SetStatus(new InferenceEngineStatus
+            TransitionStatus(new InferenceEngineStatus
             {
                 State = EngineLoadState.Failed,
                 Info = loaded.EngineInfo,
@@ -145,7 +154,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         if (loaded.EngineInfo is null)
         {
             _logger.LogError("oop {EngineId}: worker load response had no EngineInfo", _oopOptions.EngineId);
-            SetStatus(new InferenceEngineStatus
+            TransitionStatus(new InferenceEngineStatus
             {
                 State = EngineLoadState.Failed,
                 LoadError = "Worker load response had no EngineInfo.",
@@ -157,7 +166,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         // serialized in this revision; it stays null on the proxy (a follow-up can carry name/dims).
         ApplyLoadedState(loaded.EngineInfo, inputMetadata: null, outputMetadata: null, primaryInputName: null);
         _workerLoaded = true;
-        SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loaded, Info = loaded.EngineInfo });
+        TransitionStatus(new InferenceEngineStatus { State = EngineLoadState.Loaded, Info = loaded.EngineInfo });
     }
 
     /// <summary>Marshal a <c>predict</c> to the worker and return its deserialized result.</summary>
@@ -241,7 +250,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
         _process.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
-                _logger?.LogWarning("worker stderr: {Line}", e.Data);
+                HandleWorkerStderrLine(e.Data);
         };
         // An unexpected worker death mid-session is the classic "engine silently stops working"
         // signature: capture the exit code forensically. Uses the sender (not the _process field)
@@ -262,6 +271,48 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
     {
         try { return process is not null && process.HasExited ? process.ExitCode : -1; }
         catch { return -1; }
+    }
+
+    /// <summary>Publishes a proxy status transition under <see cref="_statusGate"/> so it is
+    /// ordered against <see cref="HandleWorkerStderrLine"/> (which may fire from the stderr
+    /// pump thread at any point during the load read).</summary>
+    private void TransitionStatus(InferenceEngineStatus status)
+    {
+        lock (_statusGate)
+            SetStatus(status);
+    }
+
+    /// <summary>
+    /// Single choke point for every worker stderr line: logs it, and while a load is in flight
+    /// maps the native MIGraphX execution provider's compile markers onto the status object
+    /// model (<see cref="InferenceEngineStatus.Detail"/>) so consumers can show what the slow
+    /// first-run kernel compile is doing instead of a bare "loading". The markers are pinned
+    /// against the ORT 1.24.1.36 ROCm native build (<c>libonnxruntime_providers_migraphx</c>:
+    /// "Model Compile: Begin" / "Model Compile: Complete"); any other line is logged only.
+    /// Virtual test seam — never spawns a process itself.
+    /// </summary>
+    protected virtual void HandleWorkerStderrLine(string line)
+    {
+        _logger?.LogWarning("worker stderr: {Line}", line);
+
+        // Guarded by _statusGate together with TransitionStatus: a marker that races a terminal
+        // transition is dropped, so Loaded/Failed can never regress back to Loading.
+        lock (_statusGate)
+        {
+            if (Status.State != EngineLoadState.Loading) return;
+            if (line.Contains("Model Compile: Begin", StringComparison.Ordinal))
+                SetStatus(new InferenceEngineStatus
+                {
+                    State = EngineLoadState.Loading,
+                    Detail = "Compiling MIGraphX kernels (first run can take 1-2 minutes)",
+                });
+            else if (line.Contains("Model Compile: Complete", StringComparison.Ordinal))
+                SetStatus(new InferenceEngineStatus
+                {
+                    State = EngineLoadState.Loading,
+                    Detail = "Kernel compile complete",
+                });
+        }
     }
 
     private int? TryGetWorkerPid()

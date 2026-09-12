@@ -163,7 +163,7 @@ namespace InferenceEngine.Core
             {
                 if (_isLoaded) return;
 
-                SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading });
+                SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading, Detail = "Resolving model…" });
                 try
                 {
 
@@ -172,6 +172,8 @@ namespace InferenceEngine.Core
 
             var modelPath = await GetModelProvider().GetModelPathAsync(CancellationToken.None);
             _logger.LogInformation("Model resolved to '{ModelPath}' (exists={Exists})", modelPath, File.Exists(modelPath));
+
+            SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading, Detail = "Selecting execution provider…" });
 
             await Task.Run(() =>
             {
@@ -189,6 +191,10 @@ namespace InferenceEngine.Core
                     try
                     {
                         sessionOptions = ConfiguredSessionOptions(out provider, out fallback, out deviceId);
+
+                        // Session construction is where a hardware EP compiles the model's
+                        // kernels — including the multi-minute MIGraphX first-run compile.
+                        SetStatus(new InferenceEngineStatus { State = EngineLoadState.Loading, Detail = "Constructing inference session…" });
 
                         try
                         {

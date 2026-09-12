@@ -33,6 +33,7 @@ public enum EngineLoadState
 /// InferenceEngineOptions                    // configuration (model, GPU flags, callbacks)
 ///   └─ OnStatusChanged(InferenceEngineStatus)
 ///        ├─ State: EngineLoadState          // NotLoaded → Loading → Loaded | Failed
+///        ├─ Detail: string?                 // display-only phase text while Loading
 ///        ├─ Info: InferenceEngineInfo       // Provider, DeviceId, ModelName/Path/Source,
 ///        │                                    IsFallback + FallbackReason, Checks trail
 ///        │                                    (partial — checks only — when State=Failed)
@@ -53,6 +54,13 @@ public sealed record InferenceEngineStatus
     /// <summary>The error that failed the load (exception message, or the worker-reported error
     /// for out-of-process engines). Null unless <see cref="State"/> is Failed.</summary>
     public string? LoadError { get; init; }
+
+    /// <summary>Best-effort human-readable phase text while <see cref="State"/> is
+    /// <see cref="EngineLoadState.Loading"/> (e.g. "Starting engine worker…",
+    /// "Constructing inference session…", "Compiling MIGraphX kernels…"). Consumed for progress
+    /// UI during slow first loads; null means "no finer phase is known". Not a stable contract —
+    /// treat as display text only.</summary>
+    public string? Detail { get; init; }
 
     /// <summary>When this snapshot was produced (UTC).</summary>
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
