@@ -376,9 +376,64 @@ namespace InferenceEngine.Core
             }
         }
 
-        /// <summary>Appends the MIGraphX execution provider. Override to inject a throw in tests.</summary>
+        /// <summary>
+        /// Appends the MIGraphX execution provider with the compiled-model (.mxr) cache
+        /// directory resolved by <see cref="ResolveMIGraphXModelCacheDirectory"/>. The cache
+        /// persists compiled MIGraphX programs across process restarts; without it the ORT
+        /// provider compiles the full model on every session construction (an empty cache
+        /// path explicitly means "always compile" in the EP). Override to inject a throw in tests.
+        /// </summary>
         protected virtual void AppendMIGraphXProvider(SessionOptions options, int deviceId)
-            => options.AppendExecutionProvider_MIGraphX(deviceId);
+        {
+            var providerOptions = new Dictionary<string, string>
+            {
+                ["device_id"] = deviceId.ToString(),
+            };
+
+            var cacheDir = ResolveMIGraphXModelCacheDirectory();
+            if (cacheDir is not null)
+            {
+                try
+                {
+                    Directory.CreateDirectory(cacheDir);
+                    providerOptions["migraphx_model_cache_dir"] = cacheDir;
+                    _logger.LogInformation(
+                        "MIGraphX compiled-model cache: {CacheDir} (first load compiles ~1-2 min; later loads reuse the saved .mxr)",
+                        cacheDir);
+                }
+                catch (Exception ex)
+                {
+                    // The cache is an optimization: a host that cannot host the cache directory
+                    // still gets GPU inference, just with a full recompile on every startup.
+                    _logger.LogWarning(ex,
+                        "Cannot create MIGraphX model cache directory {CacheDir}; continuing without .mxr caching (every startup recompiles).",
+                        cacheDir);
+                }
+            }
+
+            options.AppendExecutionProvider("MIGraphX", providerOptions);
+        }
+
+        /// <summary>
+        /// Resolves the MIGraphX compiled-model (.mxr) cache directory: an explicitly configured
+        /// <see cref="InferenceEngineOptions.MIGraphXModelCacheDirectory"/> wins (empty string =
+        /// disabled), otherwise a per-user default under the same root as
+        /// <see cref="ModelCacheDirectory"/>. Returns <see langword="null"/> when caching is
+        /// disabled or the host has no user-profile directory to anchor the default.
+        /// Pure path computation — directory creation happens in
+        /// <see cref="AppendMIGraphXProvider"/> only.
+        /// </summary>
+        protected virtual string? ResolveMIGraphXModelCacheDirectory()
+        {
+            var configured = _options.MIGraphXModelCacheDirectory;
+            if (configured is not null)
+                return configured.Length == 0 ? null : configured;
+
+            var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return string.IsNullOrEmpty(root)
+                ? null
+                : Path.Combine(root, "InferenceEngine", "MIGraphXModelCache");
+        }
 
         /// <summary>Appends the DirectML execution provider. Override to inject a throw in tests.</summary>
         protected virtual void AppendDirectMlProvider(SessionOptions options, int deviceId)
@@ -671,16 +726,21 @@ namespace InferenceEngine.Core
 
         /// <summary>
         /// Per-provider key/value options actually applied. At minimum surfaces <c>device_id</c> for
-        /// hardware-accelerated providers (MIGraphX/DirectML/CoreML); empty for CPU/Unknown.
+        /// hardware-accelerated providers (MIGraphX/DirectML/CoreML); MIGraphX additionally surfaces
+        /// <c>migraphx_model_cache_dir</c> when the compiled-model cache is enabled. Empty for
+        /// CPU/Unknown.
         /// </summary>
-        private static IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider, int deviceId)
+        private IReadOnlyDictionary<string, string> ExtractProviderOptions(InferenceProvider provider, int deviceId)
         {
             if (provider == InferenceProvider.Cpu || provider == InferenceProvider.Unknown)
                 return ImmutableDictionary<string, string>.Empty;
 
-            // Build the single-entry dictionary directly on the immutable tree instead of allocating
-            // a transient Dictionary<string,string> + ToImmutableDictionary() on every session init.
-            return ImmutableDictionary<string, string>.Empty.Add("device_id", deviceId.ToString());
+            // Build the immutable tree directly instead of allocating a transient
+            // Dictionary<string,string> + ToImmutableDictionary() on every session init.
+            var options = ImmutableDictionary<string, string>.Empty.Add("device_id", deviceId.ToString());
+            if (provider == InferenceProvider.MIGraphX && ResolveMIGraphXModelCacheDirectory() is { } cacheDir)
+                options = options.Add("migraphx_model_cache_dir", cacheDir);
+            return options;
         }
 
         private static SessionOptions CreateCpuOnlySessionOptions()

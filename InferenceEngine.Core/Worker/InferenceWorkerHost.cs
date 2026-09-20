@@ -116,6 +116,7 @@ public static class InferenceWorkerHost
             UseGpuAcceleration = o.UseGpuAcceleration,
             DeviceId = o.DeviceId,
             WarmupOnLoad = o.WarmupOnLoad,
+            MIGraphXModelCacheDirectory = o.MIGraphXModelCacheDirectory,
         };
 
         var sw = Stopwatch.StartNew();

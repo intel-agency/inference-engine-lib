@@ -131,6 +131,7 @@ public abstract class OutOfProcessBaseInferenceEngine<TInput, TOutput> : BaseInf
                 UseGpuAcceleration = engineOpts.UseGpuAcceleration,
                 DeviceId = engineOpts.DeviceId,
                 WarmupOnLoad = engineOpts.WarmupOnLoad,
+                MIGraphXModelCacheDirectory = engineOpts.MIGraphXModelCacheDirectory,
             },
         }, _oopOptions.StartupTimeout).ConfigureAwait(false);
 

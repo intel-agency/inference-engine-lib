@@ -159,6 +159,37 @@ plus the 4 additional root-cause fixes for upstream package quirks, SkiaSharp
 split packages, and the SIGSEGV-on-non-ROCm-hosts hazard), see
 [`docs/Review___ONNX_Runtime_Missing_Native_RESOLUTION.md`](./Review___ONNX_Runtime_Missing_Native_RESOLUTION.md).
 
+### Compiled-model (.mxr) cache
+
+Session construction is where MIGraphX compiles the whole model for the GPU — on a
+gfx1030 that takes roughly 60-100 s per model. The ORT MIGraphX execution provider
+can persist each compiled program as an `.mxr` file and reload it on later startups
+(~1-2 s), but the cache is **opt-in**: in ORT's own words, an empty cache path means
+"the MXR caching is disabled - always compile."
+
+The library enables it by default. `AppendMIGraphXProvider` passes the
+`migraphx_model_cache_dir` provider option, resolved by
+`ResolveMIGraphXModelCacheDirectory()`:
+
+| `InferenceEngineOptions.MIGraphXModelCacheDirectory` | Effective cache directory |
+| --- | --- |
+| `null` (default) | `%LocalAppData%/InferenceEngine/MIGraphXModelCache` (Linux: `~/.local/share/InferenceEngine/MIGraphXModelCache`) |
+| non-empty string | that directory, verbatim |
+| `""` (empty) | disabled — every startup recompiles |
+
+Notes:
+
+- Cache filenames embed hashes of the MIGraphX version, graph identity, GPU
+  architecture, and input shapes — a model swap, ROCm/MIGraphX upgrade, or different
+  GPU naturally misses the cache and recompiles once. Stale files are inert.
+- Quantization flags (fp16/int8) are **not** part of the key; delete the directory
+  after changing quantization settings.
+- The same directory can be shared by multiple engines; filenames are hash-keyed.
+- Out-of-process workers honor the option over the IPC protocol
+  (`WorkerEngineOptions.MIGraphXModelCacheDirectory`).
+- On this feature, `ORT_MIGRAPHX_MODEL_CACHE_PATH` (the documented env var) was
+  verified NOT to engage the cache on ORT 1.24.1 — use the provider option.
+
 ---
 
 ## Verifying Your System

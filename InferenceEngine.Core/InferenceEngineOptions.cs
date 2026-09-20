@@ -42,6 +42,23 @@ namespace InferenceEngine.Core
         public bool WarmupOnLoad { get; set; } = true;
 
         /// <summary>
+        /// Directory for the MIGraphX compiled-model (.mxr) cache (Linux x64 only). When
+        /// enabled, the MIGraphX execution provider persists each compiled program to disk and
+        /// reloads it on later startups, cutting engine load from a ~1-2 minute kernel compile
+        /// to a ~1-2 second cache load. Cache files are keyed by MIGraphX version, graph
+        /// identity, GPU architecture, and input shapes, so model swaps, ROCm/MIGraphX
+        /// upgrades, or a different GPU naturally miss the cache and recompile.
+        /// <list type="bullet">
+        /// <item><c>null</c> (default): use <c>%LocalAppData%/InferenceEngine/MIGraphXModelCache</c>.</item>
+        /// <item><c>""</c> (empty string): disable .mxr caching (every startup recompiles).</item>
+        /// <item>non-empty: use that directory verbatim (created if missing).</item>
+        /// </list>
+        /// Note: quantization flags (fp16/int8) are not part of the cache key — delete the
+        /// directory after changing quantization settings.
+        /// </summary>
+        public string? MIGraphXModelCacheDirectory { get; set; }
+
+        /// <summary>
         /// Optional callback invoked on every engine status transition (Loading → Loaded or
         /// Failed), on the LoadAsync thread pool thread. Receives the full
         /// <see cref="Diagnostics.InferenceEngineStatus"/> object model — on failure its
