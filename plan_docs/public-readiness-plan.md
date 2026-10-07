@@ -52,6 +52,14 @@ Exposure scan verdict (full working tree + all 170 commits across all branches +
 
 ## Phase 0 — start now (nothing blocked on downstream)
 
+> **Status (2026-10-07): COMPLETE — merged to `main`.** Progress log:
+> - §0.1–§0.6 — PR #25 (`dev/public-readiness` → `development`), 3-OS CI green, independent reviewer pass per workstream (all findings fixed: conflict markers in this doc, THIRD-PARTY-NOTICES packing, `await using` doc samples).
+> - §0.7 — coverage HTML + in-place PR summary comment live-verified on PRs #25/#26 (ReportGenerator 5.5.11; beats baseline: 71.0% line / 56.3% branch).
+> - §0.8 — DocFX 2.81.0 site + coverage deployed to Pages from `main` (`docs.yml` dispatch run 37651346985, `github-pages` deployment 16:24Z). Public URL answers at flip. One fix along the way: `upload-pages-artifact` inlined to satisfy the repo's full-SHA action-pinning policy (PRs #27/#28).
+> - §0.9 — `publish-nuget.yml` live on `development`: dry-run green (GitHub Packages publish, `create-release` correctly skipped off `release`) — run 37646968358.
+> - §0.10 — environments/Pages/Discussions done via API by lead; `VERSION_PREFIX=1.2`, CodeQL default setup (post-flip), `NUGET_API_KEY` remain owner-manual (checklist below).
+> - History hygiene: the branch was linearized and fully GPG-signed before merge (`development` ruleset requires linear history + signatures).
+
 Everything below is executable immediately. Execution will be delegated to parallel worker subagents where independent (README, CI workflows, governance files, docs site), integrated and verified here.
 
 ### 0.1 Exposure remediation
@@ -166,9 +174,29 @@ Workstreams §0.1–§0.6 touch near-disjoint files → parallel workers on `dev
 
 One-time, owner-executed (I prepare the exact commands):
 
-1. `gh repo edit intel-agency/inference-engine-lib --visibility public` 
-2. Metadata: description ("Cross-platform .NET AI inference library — ONNX Runtime behind a generic, testable engine contract with streaming decode and automatic GPU fallback"), homepage → docs URL, topics: `dotnet csharp onnx onnxruntime machine-learning inference gpu directml coreml rocm migraphx llm streaming nuget`.
-3. Verify: community profile checklist, README badges render, commit-email visibility is accepted, Pages URL live.
+```bash
+# 1. Flip visibility (this is the point of no return for public visibility)
+gh repo edit intel-agency/inference-engine-lib --visibility public --accept-visibility-change-consequences
+
+# 2. Metadata: description, homepage (docs site), topics
+gh repo edit intel-agency/inference-engine-lib \
+  --description "Cross-platform .NET AI inference library — ONNX Runtime behind a generic, testable engine contract with streaming decode and automatic GPU fallback" \
+  --homepage "https://intel-agency.github.io/inference-engine-lib/" \
+  --add-topic dotnet --add-topic csharp --add-topic onnx --add-topic onnxruntime \
+  --add-topic machine-learning --add-topic inference --add-topic gpu --add-topic directml \
+  --add-topic coreml --add-topic rocm --add-topic migraphx --add-topic llm --add-topic streaming --add-topic nuget
+
+# 3. Enable CodeQL default setup (agent API 404s while private; free once public)
+gh api -X PUT /repos/intel-agency/inference-engine-lib/code-scanning/default-setup \
+  -f state=enabled -f query_suite=Default -f 'languages[]=csharp'
+
+# 4. Set the version line (dev pushes become 1.2-dev.{run}; first stable lands at 1.2.{low N} after the publish-nuget.yml counter reset)
+#    GitHub UI: Settings → Secrets and variables → Actions → Variables → VERSION_PREFIX = 1.2
+
+# 5. Verify: community profile checklist greens, README badges render,
+#    https://intel-agency.github.io/inference-engine-lib/ serves publicly,
+#    commit-email visibility is accepted (recommended).
+```
 
 Nothing else blocks on visibility — the exposure scan is clear with §0.1 applied.
 
