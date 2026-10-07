@@ -1,49 +1,52 @@
 {
   "$schema": "https://raw.githubusercontent.com/dotnet/docfx/main/schemas/docfx.schema.json",
+  "rules": {
+    "InvalidFileLink": "suggestion"
+  },
   "metadata": [
     {
       "src": [
         {
-          "src": ".",
+          "src": "InferenceEngine.Core",
           "files": [
-            "**/*.csproj"
-          ],
-          "exclude": [
-            "**/*Tests*.csproj"
+            "InferenceEngine.Core.csproj"
           ]
         }
       ],
-      "dest": "api"
+      "output": "api"
     }
   ],
   "build": {
     "content": [
       {
+        "src": "docs",
         "files": [
-          "**/*.{md,yml}"
-        ],
-        "exclude": [
-          "_site/**"
+          "index.md",
+          "toc.yml",
+          "consumer-integration-guide.md",
+          "streaming-inference-guide.md",
+          "text-engines-guide.md"
         ]
-      }
-    ],
-    "resource": [
+      },
       {
         "files": [
-          "images/**"
+          "api/*.yml",
+          "api/index.md"
         ]
       }
     ],
+    "resource": [],
     "output": "_site",
     "template": [
       "default",
       "modern"
     ],
     "globalMetadata": {
-      "_appName": "inference-engine-lib",
-      "_appTitle": "inference-engine-lib",
+      "_appName": "InferenceEngine.Core",
+      "_appTitle": "InferenceEngine.Core",
       "_enableSearch": true,
-      "pdf": true
+      "_appFooter": "<span>MIT License © 2026 Artificial Intelligence Agency — <a href=\"https://github.com/intel-agency/inference-engine-lib\" target=\"_blank\" rel=\"noopener\">inference-engine-lib on GitHub</a></span>",
+      "pdf": false
     }
   }
 }
