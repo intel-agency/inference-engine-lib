@@ -199,71 +199,71 @@ public sealed class OutOfProcessConcurrencyTests
             IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context) => string.Empty;
         public override Task<string> PredictAsync(string input) => Task.FromResult($"echo:{input}");
     }
+}
 
-    /// <summary>
-    /// Minimal in-process duplex stream backed by two unbounded channels. Whatever one endpoint
-    /// writes, the peer reads. Closing/disposing completes the writer so the peer's read sees EOF.
-    /// Stands in for a redirected stdin/stdout pipe without spawning a process.
-    /// </summary>
-    private sealed class ChannelStream : Stream
+/// <summary>
+/// Minimal in-process duplex stream backed by two unbounded channels. Whatever one endpoint
+/// writes, the peer reads. Closing/disposing completes the writer so the peer's read sees EOF.
+/// Stands in for a redirected stdin/stdout pipe without spawning a process.
+/// </summary>
+internal sealed class ChannelStream : Stream
+{
+    private readonly ChannelReader<byte[]> _reader;
+    private readonly ChannelWriter<byte[]> _writer;
+    private byte[]? _pending;
+    private int _pendingOffset;
+
+    private ChannelStream(Channel<byte[]> readCh, Channel<byte[]> writeCh)
     {
-        private readonly ChannelReader<byte[]> _reader;
-        private readonly ChannelWriter<byte[]> _writer;
-        private byte[]? _pending;
-        private int _pendingOffset;
+        _reader = readCh.Reader;
+        _writer = writeCh.Writer;
+    }
 
-        private ChannelStream(Channel<byte[]> readCh, Channel<byte[]> writeCh)
+    public static (ChannelStream a, ChannelStream b) CreatePair()
+    {
+        var c1 = Channel.CreateUnbounded<byte[]>();
+        var c2 = Channel.CreateUnbounded<byte[]>();
+        return (new ChannelStream(c1, c2), new ChannelStream(c2, c1));
+    }
+
+    public override bool CanRead => true;
+    public override bool CanWrite => true;
+    public override bool CanSeek => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override void Flush() { }
+    public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        if (_pending is null || _pendingOffset >= _pending.Length)
         {
-            _reader = readCh.Reader;
-            _writer = writeCh.Writer;
+            if (!await _reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+                return 0; // channel completed + empty => clean EOF
+            if (!_reader.TryRead(out var chunk))
+                return 0;
+            _pending = chunk;
+            _pendingOffset = 0;
         }
+        int n = Math.Min(buffer.Length, _pending.Length - _pendingOffset);
+        _pending.AsSpan(_pendingOffset, n).CopyTo(buffer.Span);
+        _pendingOffset += n;
+        return n;
+    }
 
-        public static (ChannelStream a, ChannelStream b) CreatePair()
-        {
-            var c1 = Channel.CreateUnbounded<byte[]>();
-            var c2 = Channel.CreateUnbounded<byte[]>();
-            return (new ChannelStream(c1, c2), new ChannelStream(c2, c1));
-        }
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        _writer.TryWrite(buffer.ToArray());
+        return ValueTask.CompletedTask;
+    }
 
-        public override bool CanRead => true;
-        public override bool CanWrite => true;
-        public override bool CanSeek => false;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            if (_pending is null || _pendingOffset >= _pending.Length)
-            {
-                if (!await _reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
-                    return 0; // channel completed + empty => clean EOF
-                if (!_reader.TryRead(out var chunk))
-                    return 0;
-                _pending = chunk;
-                _pendingOffset = 0;
-            }
-            int n = Math.Min(buffer.Length, _pending.Length - _pendingOffset);
-            _pending.AsSpan(_pendingOffset, n).CopyTo(buffer.Span);
-            _pendingOffset += n;
-            return n;
-        }
-
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            _writer.TryWrite(buffer.ToArray());
-            return ValueTask.CompletedTask;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) _writer.TryComplete();
-            base.Dispose(disposing);
-        }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _writer.TryComplete();
+        base.Dispose(disposing);
     }
 }

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussions
+    url: https://github.com/intel-agency/inference-engine-lib/discussions
+    about: Ask questions and propose ideas before filing a bug.
+  - name: Roadmap & planning documents
+    url: https://github.com/intel-agency/inference-engine-lib/tree/development/plan_docs
+    about: Project plans and the public-readiness work — check these before opening an issue.

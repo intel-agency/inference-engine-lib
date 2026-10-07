@@ -1,0 +1,14 @@
+- name: Home
+  href: index.md
+- name: Guides
+  items:
+    - name: Consumer integration
+      href: consumer-integration-guide.md
+    - name: Streaming inference
+      href: streaming-inference-guide.md
+    - name: Text engines
+      href: text-engines-guide.md
+- name: API reference
+  href: ../api/
+- name: Coverage
+  href: https://intel-agency.github.io/inference-engine-lib/coverage/

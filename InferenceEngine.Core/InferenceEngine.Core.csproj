@@ -11,22 +11,25 @@
     <PackageId>InferenceEngine.Core</PackageId>
     <!-- Version is set by CI/CD workflow using VERSION_PREFIX and github.run_number -->
     <!-- Local builds use this default, CI overrides with -p:Version=$VERSION -->
-    <Version>1.1.0-dev</Version>
+    <Version>1.2.0-dev</Version>
     <Authors>intel-agency</Authors>
     <Company>Artificial Intelligence Agency</Company>
     <Description>A cross-platform .NET library for AI inference with ONNX Runtime, featuring hardware acceleration, automatic fallback, and built-in diagnostics for provider selection.</Description>
     <PackageTags>onnx;onnxruntime;ai;inference;machine-learning;deep-learning;directml;gpu;agents;rocm</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageLicenseExpression> AGPL-3.0-or-later</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/intel-agency/inference-engine-lib</PackageProjectUrl>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <!-- Validate packed assets on every pack; baseline version pinning lands in Phase 2. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Title>Inference Engine</Title>
-    <Copyright>Copyright © 2026 Artificial Intelligence Agency. All rights reserved.</Copyright>
-    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <Copyright>Copyright © 2026 Artificial Intelligence Agency</Copyright>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <IncludeSymbols>True</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
@@ -59,6 +62,9 @@
   
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="\" />
+    <None Include="../LICENSE" Pack="true" PackagePath="\" />
+    <None Include="../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="\" />
+    <None Include="icon.png" Pack="true" PackagePath="\" />
     <None Include="buildTransitive\InferenceEngine.Core.targets" Pack="true" PackagePath="buildTransitive\" />
     <Content Include="models.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -71,18 +77,18 @@
 
   <ItemGroup><!-- Base Runtime (CPU) -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" GeneratePathProperty="true" /><!-- Logging Abstraction -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" /><!-- Tensors support -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" /><!-- Tensors support -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <!-- Tokenizer support for text embedding/generation engines -->
-    <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.3" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <!-- Expose internal text math helpers to the test project for hermetic verification. -->
     <InternalsVisibleTo Include="InferenceEngine.Tests" />
     <!-- SourceLink: enables source stepping from the NuGet.org symbol server -->
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
   <!-- DirectML EP is Windows-RID only — gated on RuntimeIdentifier so cross-RID builds never resolve DirectML assets. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
   </ItemGroup>
   <!-- MIGraphX EP native libs — included unconditionally on Linux x64.
        The MIGraphX-enabled libonnxruntime.so from the InferenceEngine.ROCm.Runtime.linux-x64

@@ -6,7 +6,7 @@ on:
     paths:
       - 'InferenceEngine.Core/**'
       - 'InferenceEngine.Examples/**'
-      - '.github/workflows/publish.yml'
+      - '.github/workflows/publish-nuget.yml'
   workflow_dispatch:
 
 env:
@@ -69,7 +69,7 @@ jobs:
           RUN="${{ github.run_number }}"
           case "${{ github.ref_name }}" in
             development) VERSION="${PREFIX}-dev.${RUN}" ;;
-            staging)     VERSION="${PREFIX}-rc.${RUN}" ;;
+            main)        VERSION="${PREFIX}-rc.${RUN}" ;;
             release)     VERSION="${PREFIX}.${RUN}" ;;
             *)           VERSION="${PREFIX}-local.${RUN}" ;;
           esac
@@ -132,34 +132,79 @@ jobs:
             --source github \
             --skip-duplicate
 
-  publish-nuget-org:
-    name: Publish to NuGet.org
+  # Release-only final stage (mirrors downstream build-rocm-linux.yml): after the
+  # packages have landed on GitHub Packages, cut the GitHub Release and push to
+  # nuget.org. Gated by the protected `release` environment, not a toggle variable.
+  create-release:
+    name: Create GitHub Release & Publish to NuGet.org
+    needs: [publish-github-packages]
+    if: github.ref_name == 'release'
     runs-on: ubuntu-latest
-    needs: [pack]
-    if: success() && github.ref_name == 'release' && vars.PUBLISH_NUGET_ORG == 'true'
-    environment:
-      name: nuget-org
-      url: https://www.nuget.org/packages/InferenceEngine.Core
-      
+    environment: release
+    permissions:
+      contents: write
+
     steps:
+      # Fail before creating anything public if the secret is missing —
+      # otherwise a bad run would publish a release with no nuget.org package.
+      - name: Verify required secrets
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::NUGET_API_KEY secret is not configured"
+            exit 1
+          fi
+
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-          
+
       - name: Download NuGet Package
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: nuget-package
           path: ./nupkg
-          
+
+      - name: Compute Release Version
+        run: |
+          PREFIX="${{ vars.VERSION_PREFIX }}"
+          RUN="${{ github.run_number }}"
+          VERSION="${PREFIX}.${RUN}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Release version: $VERSION"
+
+      # Bare filenames so `sha256sum -c SHA256SUMS.txt` works in a flat
+      # download dir — generate from inside nupkg/.
+      - name: Generate checksums
+        run: |
+          cd nupkg
+          sha256sum -- *.nupkg *.snupkg > SHA256SUMS.txt
+          echo "=== SHA256SUMS ==="
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: "v${{ env.VERSION }}"
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: |
+            nupkg/*.nupkg
+            nupkg/*.snupkg
+            nupkg/SHA256SUMS.txt
+
       - name: Publish to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
             --skip-duplicate
           dotnet nuget push "./nupkg/*.snupkg" \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
             --skip-duplicate

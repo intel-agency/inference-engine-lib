@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace InferenceEngine.Core.Worker;
@@ -21,13 +23,18 @@ public static class InferenceWorkerHost
     /// <param name="input">Optional input stream (stdin). Tests inject a pipe; production uses console stdin.</param>
     /// <param name="output">Optional output stream (stdout). Tests inject a pipe; production uses console stdout.</param>
     /// <param name="cancellationToken">Observed between requests.</param>
+    /// <param name="logger">Optional logger for the worker loop itself (frame tracing, load
+    /// outcomes, timings). stdout stays protocol-only; logger output goes to whatever sink the
+    /// consumer configured (typically stderr, which the host proxy forwards).</param>
     public static async Task<int> RunAsync<TInput, TOutput>(
         Func<InferenceEngineOptions, BaseInferenceEngine<TInput, TOutput>> engineFactory,
         IWorkerSerializer<TInput, TOutput>? serializer = null,
         Stream? input = null,
         Stream? output = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ILogger? logger = null)
     {
+        var log = logger ?? NullLogger.Instance;
         serializer ??= new SystemTextJsonWorkerSerializer<TInput, TOutput>();
 
         // Redirect engine logging away from stdout (stdout is protocol-only); use stderr.
@@ -43,6 +50,9 @@ public static class InferenceWorkerHost
         }
         // Keep stdout free of any stray text writes — protocol frames only.
 
+        log.LogInformation("worker loop: started (pid={Pid}, {Mode})",
+            Environment.ProcessId, output is null ? "console stdio" : "injected streams");
+
         BaseInferenceEngine<TInput, TOutput>? engine = null;
         try
         {
@@ -55,21 +65,28 @@ public static class InferenceWorkerHost
                 }
                 catch (OperationCanceledException)
                 {
+                    log.LogInformation("worker loop: cancelled; exiting");
                     break;
                 }
-                if (msg is null) break; // host closed stdin → exit
+                if (msg is null) // host closed stdin → exit
+                {
+                    log.LogInformation("worker loop: stdin closed by host; exiting");
+                    break;
+                }
 
                 switch (msg.Kind)
                 {
                     case "load":
-                        engine = await HandleLoadAsync(engineFactory, serializer, msg, stdout, cancellationToken).ConfigureAwait(false);
+                        engine = await HandleLoadAsync(engineFactory, serializer, msg, stdout, log, cancellationToken).ConfigureAwait(false);
                         break;
                     case "predict" when engine is not null:
-                        await HandlePredictAsync(engine, serializer, msg, stdout, cancellationToken).ConfigureAwait(false);
+                        await HandlePredictAsync(engine, serializer, msg, stdout, log, cancellationToken).ConfigureAwait(false);
                         break;
                     case "shutdown":
+                        log.LogInformation("worker loop: shutdown received; exiting 0");
                         return 0;
                     default:
+                        log.LogWarning("worker loop: unknown or unexpected message kind '{Kind}'", msg.Kind);
                         await WorkerFrame.WriteAsync(stdout,
                             new WorkerEnvelope { Kind = "result", Error = $"Unknown or unexpected message kind: '{msg.Kind}'." },
                             cancellationToken).ConfigureAwait(false);
@@ -89,6 +106,7 @@ public static class InferenceWorkerHost
         IWorkerSerializer<TInput, TOutput> serializer,
         WorkerEnvelope msg,
         Stream stdout,
+        ILogger log,
         CancellationToken ct)
     {
         var o = msg.Options ?? new WorkerEngineOptions();
@@ -98,8 +116,10 @@ public static class InferenceWorkerHost
             UseGpuAcceleration = o.UseGpuAcceleration,
             DeviceId = o.DeviceId,
             WarmupOnLoad = o.WarmupOnLoad,
+            MIGraphXModelCacheDirectory = o.MIGraphXModelCacheDirectory,
         };
 
+        var sw = Stopwatch.StartNew();
         BaseInferenceEngine<TInput, TOutput> engine;
         try
         {
@@ -107,6 +127,7 @@ public static class InferenceWorkerHost
         }
         catch (Exception ex)
         {
+            log.LogError(ex, "worker load: engine factory threw for engine '{EngineId}'", msg.EngineId);
             await WorkerFrame.WriteAsync(stdout, new WorkerEnvelope { Kind = "loaded", Error = ex.ToString() }, ct).ConfigureAwait(false);
             return null;
         }
@@ -114,10 +135,14 @@ public static class InferenceWorkerHost
         try
         {
             await engine.LoadAsync().ConfigureAwait(false); // real EP selection happens here
+            log.LogInformation("worker load: engine '{EngineId}' loaded in {Elapsed}ms (provider={Provider}, fallback={IsFallback}, reason={FallbackReason})",
+                msg.EngineId, sw.ElapsedMilliseconds, engine.EngineInfo.Provider, engine.EngineInfo.IsFallback, engine.EngineInfo.FallbackReason);
             await WorkerFrame.WriteAsync(stdout, new WorkerEnvelope { Kind = "loaded", EngineInfo = engine.EngineInfo }, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            log.LogError(ex, "worker load: engine '{EngineId}' LoadAsync failed after {Elapsed}ms",
+                msg.EngineId, sw.ElapsedMilliseconds);
             await WorkerFrame.WriteAsync(stdout,
                 new WorkerEnvelope { Kind = "loaded", EngineInfo = engine.EngineInfo, Error = ex.ToString() },
                 ct).ConfigureAwait(false);
@@ -130,18 +155,22 @@ public static class InferenceWorkerHost
         IWorkerSerializer<TInput, TOutput> serializer,
         WorkerEnvelope msg,
         Stream stdout,
+        ILogger log,
         CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             var input = serializer.DeserializeInput(msg.Payload ?? string.Empty);
             var output = await engine.PredictAsync(input).ConfigureAwait(false);
+            log.LogDebug("worker predict: ok in {Elapsed}ms", sw.ElapsedMilliseconds);
             await WorkerFrame.WriteAsync(stdout,
                 new WorkerEnvelope { Kind = "result", Payload = serializer.SerializeOutput(output) },
                 ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            log.LogError(ex, "worker predict: failed after {Elapsed}ms", sw.ElapsedMilliseconds);
             await WorkerFrame.WriteAsync(stdout,
                 new WorkerEnvelope { Kind = "result", Error = ex.ToString() },
                 ct).ConfigureAwait(false);

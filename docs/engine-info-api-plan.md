@@ -3,7 +3,7 @@
 **Status:** Draft for lib-team review
 **Target repos:**
 - Producer: `intel-agency/inference-engine-lib` (this repo) — Section A is the work
-- Consumer: `nam20485/InferenceApp` — Section B is the work, depends on Section A
+- Consumer: the consumer app — Section B is the work, depends on Section A
 **Goal:** Make the currently selected inference engine observable — provider, device, platform, fallback state, and a precise trail of which checks passed / failed / were skipped during provider selection.
 
 ---
@@ -17,13 +17,13 @@ Today, the only signal a consumer gets from the lib about hardware acceleration 
 1. **Insufficient** — it only signals ROCm, never DirectML / CoreML / CPU-fallback / `use-gpu=false` / multi-engine fleets.
 2. **Unactionable on failure** — a `false` collapses four different failure modes (`/dev/kfd` missing, `libhsa-runtime64.so` not dlopen-able, `AppendExecutionProvider_ROCm` threw, `new InferenceSession` threw on the ROCm EP) into one indistinguishable `false`. A consumer that wants to fix the situation (install ROCm runtime, install HSA, check dmesg for KFD errors, etc.) cannot.
 3. **Unobservable cross-platform** — on Windows, the DirectML `try/catch → CPU` path (`BaseInferenceEngine.cs:256`) silently demotes to CPU with no log; same for CoreML on macOS (`BaseInferenceEngine.cs:270`). Consumers cannot tell "we got a CPU session on purpose" from "we wanted DirectML and silently lost it."
-4. **Untested** — `InferenceEngine.Tests/RocmProviderTests.cs` and `FaceDetectionEngineTests.cs` (96–210) exercise the path, but the *consumer-side* test suite (`nam20485/InferenceApp/Tests/`) has zero provider assertions. A ROCm regression on a real GPU host will pass the consumer's 37 tests.
+4. **Untested** — `InferenceEngine.Tests/RocmProviderTests.cs` and `FaceDetectionEngineTests.cs` (96–210) exercise the path, but the *consumer-side* test suite (the consumer app's `Tests/`) has zero provider assertions. A ROCm regression on a real GPU host will pass the consumer's 37 tests.
 
 The plan is to:
 
 - Add a structured, post-session `InferenceEngineInfo` describing the engine that was actually loaded.
 - Capture, for every platform branch attempted, an ordered list of `ProviderDiagnosticCheck` records — passed, failed, or skipped — so a failed GPU activation can be diagnosed down to the specific missing file or thrown exception.
-- Plumb that info into the consumer (InferenceApp) so it can render it in the UI and the CLI.
+- Plumb that info into the consumer app so it can render it in the UI and the CLI.
 - Lock the new behavior in with `Xunit.SkippableFact` tests on every branch.
 
 ---
@@ -304,7 +304,7 @@ public abstract class BaseInferenceEngine<TInput, TOutput>
 ```
 
 `IsRocmSessionActive` is **not removed**; deprecation is XML-only. Rationale:
-the only known consumer (`nam20485/InferenceApp`) does not read it today, but
+the only known consumer app does not read it today, but
 the lib's public API contract should not shrink in a minor release.
 
 ### A.5 `InferenceEngineOptions` additions (non-breaking)
@@ -372,7 +372,7 @@ Use `Xunit.SkippableFact` per `AGENTS.md`. Naming: `MethodName_Scenario_Expected
 
 ### A.8 Documentation
 
-- Add a **Diagnostics** section to `docs/inferenceapp-integration-guide.md` with a complete code sample (consumer reads `engine.EngineInfo`; iterates `Checks`; formats via `string.Join`).
+- Add a **Diagnostics** section to `docs/consumer-integration-guide.md` with a complete code sample (consumer reads `engine.EngineInfo`; iterates `Checks`; formats via `string.Join`).
 - Add XML doc comments on every new public/protected member (per `AGENTS.md` §coding_conventions).
 - Update `InferenceEngine.Core/InferenceEngine.Core.csproj` `Description` and any package metadata if needed (no code impact).
 
@@ -401,18 +401,18 @@ expected; the new code uses only BCL + `Microsoft.Extensions.Logging.Abstraction
 
 ---
 
-## Section B — Consumer changes (nam20485/InferenceApp)
+## Section B — Consumer changes (the consumer app)
 
 This depends on Section A. The consumer plan is included here so the lib team
 knows what they're enabling; the consumer work itself is a separate PR by
-the InferenceApp team.
+the consumer app team.
 
 ### B.1 Surface `EngineInfo` to the UI
 
 Two engines exist in the app:
-`OnnxInferenceEngine` (detection, `InferenceApp.UI/Services/OnnxInferenceEngine.cs`)
+`OnnxInferenceEngine` (detection, `consumer-ui/Services/OnnxInferenceEngine.cs`)
 and `ArcFaceRecognitionEngine` (embeddings,
-`InferenceApp.UI/Services/ArcFaceRecognitionEngine.cs`). Each gets its own
+`consumer-ui/Services/ArcFaceRecognitionEngine.cs`). Each gets its own
 `EngineInfo` snapshot.
 
 **New view-model `EngineDiagnosticsViewModel`:**
@@ -424,7 +424,7 @@ and `ArcFaceRecognitionEngine` (embeddings,
 - `string RecognitionSummary => FormatSummary(RecognitionInfo)`
 - Auto-refreshes when the underlying engines re-load (e.g., when
   `LazyOnnxInferenceEngine` recreates after dispose at
-  `InferenceApp.UI/Services/LazyOnnxInferenceEngine.cs:63-75`).
+  `consumer-ui/Services/LazyOnnxInferenceEngine.cs:63-75`).
 
 ### B.2 UI placement
 
@@ -443,11 +443,11 @@ follows (more layout work).
 
 ### B.3 CLI `--diag inference` subcommand
 
-Add a new CLI mode in `InferenceApp.UI/Program.cs` (parallel to the existing
+Add a new CLI mode in `consumer-ui/Program.cs` (parallel to the existing
 `import-performers` subcommand at `Program.cs:14-18`):
 
 ```
-$ dotnet run --project InferenceApp.UI -- --diag inference
+$ dotnet run --project consumer-ui -- --diag inference
 == Detection Engine (yolov8n-face.onnx) ==
 Provider:        ROCm
 Platform:        LinuxX64
@@ -487,7 +487,7 @@ Checks:
 Exit code 0 on success, non-zero if `LoadAsync` throws on every path (no
 session at all).
 
-### B.4 Tests (consumer-side, in `nam20485/InferenceApp/Tests/`)
+### B.4 Tests (consumer-side, in the consumer app's `Tests/`)
 
 - `EngineDiagnosticsViewModel_AfterEngineLoad_PopulatesInfoFromLazyEngine`
   — load `OnnxInferenceEngine` with a known model, assert `DetectionInfo.Provider` matches expected.
@@ -511,7 +511,7 @@ version after Section A ships a release with the new API.
 2. Section A.3 (refactor) + A.4 (engine property) + A.5 (option) + A.6 (logging) — one PR; behavior-preserving for all existing callers; the only externally visible change is the new `EngineInfo` property and the callback.
 3. Section A.7 (tests) — included in the same PR to prove equivalence on each platform.
 4. Section A.8 (docs) — same PR.
-5. Publish a `-dev.*` build from `development`. Bump `nam20485/InferenceApp`'s floating `1.0.*` → `1.1.0-dev.*` (or whatever Section A's version policy is — confirm with lib team).
+5. Publish a `-dev.*` build from `development`. Bump the consumer app's floating `1.0.*` → `1.1.0-dev.*` (or whatever Section A's version policy is — confirm with lib team).
 6. Section B.1–B.4 (consumer UI + CLI + tests) — second PR, after consumer upgrades the package.
 
 ## Open questions for the lib team
