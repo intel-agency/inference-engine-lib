@@ -68,8 +68,7 @@ into PR #15. During implementation this was **reversed and discarded**:
 
 The correct fix for actual GPU inference on this box is **not code** — it is installing the
 right ROCm runtimes from the AMD ROCm apt repo (`sudo apt install hip-runtime-amd migraphx`)
-to obtain the real `libamdhip64.so.7` + `libmigraphx_c.so.3`. The migration guide
-(`docs/inferenceapp-migraphx-migration-guide.md` §7) documents this.
+to obtain the real `libamdhip64.so.7` + `libmigraphx_c.so.3`.
 
 ---
 
@@ -85,7 +84,7 @@ intel-agency GitHub Packages feed:
 - Versioning scheme: `VERSION_PREFIX=1.0`; `development` → `<prefix>-dev.<run>`,
   `release` → `<prefix>.<run>` (+ NuGet.org only on `release`).
 
-**InferenceApp can consume `1.0.0-dev.11` right now** (no further promotion needed for
+**The consumer app can consume `1.0.0-dev.11` right now** (no further promotion needed for
 testing) by adding the GitHub Packages source + a PAT with `read:packages`, and bumping its
 `InferenceEngine.Core` reference to a floating `1.0.0-dev.*` (or pinning `1.0.0-dev.11`).
 
@@ -99,4 +98,4 @@ requires the `nuget-org` environment + `NUGET_API_KEY` secret.
 - Promote `development → main → release` if a stable/NuGet.org package is wanted.
 - Install AMD ROCm runtimes (`hip-runtime-amd migraphx`) on this Debian box to activate
   MIGraphX GPU inference (verify `EngineInfo.Provider == MIGraphX`).
-- Section B: surface `EngineInfo` in InferenceApp (separate repo `nam20485/InferenceApp`).
+- Section B: surface `EngineInfo` in the consumer app (separate private repo).

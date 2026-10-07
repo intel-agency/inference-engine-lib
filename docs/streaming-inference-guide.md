@@ -105,9 +105,9 @@ selection (MIGraphX on Linux/DirectML on Windows/CoreML on macOS with graceful C
 
 Wire `InferenceEngineOptions.OnSessionInitialized` to learn which provider actually loaded (e.g.
 `MIGraphX` vs `Cpu` + a granular `FallbackReason`), and read `engine.EngineInfo.Checks` for the
-ordered provider-selection trail. This is exactly how InferenceApp surfaces "Detect: Cpu (fallback:
+ordered provider-selection trail. This is exactly how the consumer app surfaces "Detect: Cpu (fallback:
 HipRuntimeMissing)" in its footer and `--diag inference` CLI. See
-[`linux-rocm-config.md`](linux-rocm-config.md) and the InferenceApp Section-B implementation.
+[`linux-rocm-config.md`](linux-rocm-config.md) and the consumer app's Section-B implementation.
 
 ## Where to find the example
 

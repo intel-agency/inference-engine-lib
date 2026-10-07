@@ -54,6 +54,10 @@ Thumbs.db
 # ROCm native build artifacts
 build/
 
+# DocFX generated output (root docfx.json: metadata -> api/, build -> _site/)
+/api/
+/_site/
+
 # Generated runtime native assets (populated by CI)
 InferenceEngine.Core/runtimes/
 
@@ -62,6 +66,14 @@ InferenceEngine.Core/runtimes/
 .github/instructions/codacy.instructions.md
 
 # OpenMemory - IDE/Assistant specific rules
-.cursor/rules/openmemory.mdc
 *.lscache
 .dirac-cache/symbol-index.db
+
+# AI-tool scratch / editor state — never commit
+.kilo/
+.kilocode/
+.cursor/
+.vscode/
+openmemory.md
+custom-instructions.md
+*.code-workspace

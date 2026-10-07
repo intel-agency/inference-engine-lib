@@ -1,0 +1,71 @@
+THIRD-PARTY NOTICES
+===================
+
+This package (InferenceEngine.Core) is a managed .NET library. It builds on
+third-party code that is distributed via its NuGet package dependencies —
+consumers of this package receive that code from their NuGet feed as part of
+normal dependency resolution.
+
+Each project remains under the terms of its own license, as referenced below.
+This file summarizes the licenses and does not modify them.
+
+
+1. ONNX Runtime
+---------------
+Packages: Microsoft.ML.OnnxRuntime, Microsoft.ML.OnnxRuntime.DirectML,
+          Microsoft.ML.OnnxRuntime.Extensions
+Copyright (c) Microsoft Corporation
+License: MIT
+License text: https://github.com/microsoft/onnxruntime/blob/main/LICENSE
+
+Microsoft.ML.OnnxRuntime.DirectML ships the DirectML execution-provider
+native assets (Windows). Microsoft.ML.OnnxRuntime.Extensions ships the
+custom-operator library, MIT-licensed at
+https://github.com/microsoft/onnxruntime-extensions/blob/main/LICENSE
+
+
+2. InferenceEngine.ROCm.Runtime.linux-x64
+-----------------------------------------
+Copyright (c) 2026 Artificial Intelligence Agency
+License: MIT
+
+This companion package (a dependency of InferenceEngine.Core on Linux x64)
+provides the MIGraphX-enabled ONNX Runtime native libraries. It carries its
+own THIRD-PARTY-NOTICES.txt covering the AMD MIGraphX and ROCm components
+its native libraries load at run time — see that file inside the package
+rather than the summary here.
+
+
+3. Microsoft.ML.Tokenizers
+--------------------------
+Copyright (c) .NET Foundation and Contributors
+License: MIT
+License text: https://github.com/dotnet/machinelearning/blob/main/LICENSE
+
+
+4. Microsoft.Extensions.Logging.Abstractions
+--------------------------------------------
+Copyright (c) .NET Foundation and Contributors
+License: MIT
+License text: https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
+
+
+5. Microsoft.SourceLink.GitHub
+------------------------------
+Copyright (c) .NET Foundation and Contributors
+License: MIT
+License text: https://github.com/dotnet/sourcelink/blob/main/License.txt
+
+Build-time only (PrivateAssets="All"): not distributed to consumers of
+this package.
+
+
+Note: SkiaSharp
+---------------
+Copyright (c) 2015-2016 Xamarin, Inc.
+Copyright (c) 2017-2018 Microsoft Corporation
+License: MIT
+License text: https://github.com/mono/SkiaSharp/blob/main/LICENSE.md
+
+Used only by the repository's Examples project, which is not published as a
+package. SkiaSharp is not a dependency of InferenceEngine.Core.

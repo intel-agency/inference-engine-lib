@@ -7,17 +7,8 @@
     <UseRidGraph>true</UseRidGraph>
     <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     
-    <!-- NuGet Package Metadata -->
-    <PackageId>InferenceEngine.Examples</PackageId>
-    <Version>1.0.0-dev</Version>
-    <Authors>intel-agency</Authors>
-    <Company>Artificial Intelligence Agency</Company>
-    <Description>Example inference engines built on top of InferenceEngine.Core, including YOLO-based object detection.</Description>
-    <PackageTags>onnx;onnxruntime;ai;inference;yolo;object-detection;machine-learning</PackageTags>
-    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <!-- Example code is never published to a feed; keep builds from producing stray .nupkg files. -->
+    <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
