@@ -218,7 +218,7 @@ Nothing else blocks on visibility — the exposure scan is clear with §0.1 appl
 ## Owner-manual checklist (cannot be done by the agent)
 
 - [ ] **Set `VERSION_PREFIX=1.2`** — GitHub UI: repo Settings → Secrets and variables → Actions → Variables tab → edit `VERSION_PREFIX` (API write blocked for agent tokens; verified 2026-10-07)
-- [ ] nuget.org API key under **intel-agent** (scope: `InferenceEngine.Core`, Push only) → repo secret `NUGET_API_KEY`
+- [x] nuget.org API key → repo secret `NUGET_API_KEY` — owner confirms the secret is defined in this repo (2026-10-07). Key account/scope proven only at first `release` push; `create-release` fail-fasts if the secret is empty
 - [x] Confirm `release` environment reviewers (the owner account, `intelagentone`) — created by lead via API 2026-10-07
 - [ ] **Enable CodeQL default setup post-flip** — Settings → Code security → Code scanning → Default setup (agent API 404s while repo is private; free once public)
 - [ ] Phase 1 visibility flip + metadata (commands provided)
