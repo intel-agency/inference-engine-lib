@@ -28,7 +28,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
     <PackageReference Include="Xunit.SkippableFact" Version="1.5.61" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <!-- Direct PackageReference with GeneratePathProperty to produce $(PkgMicrosoft_ML_OnnxRuntime)
          used by the RestoreUpstreamCpuLibOnLinux target below. This avoids hardcoding the
          version in the path and automatically tracks version changes. -->
