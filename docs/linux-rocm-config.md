@@ -16,15 +16,17 @@ back to CPU and reports a precise `InferenceFallbackReason` (e.g.
 auto-fallback shape is used on Windows (DirectML) and macOS (CoreML) — a developer
 that ships a cross-platform agent does not need to fork their engine code per OS.
 
-> **Verify in one command.** InferenceApp ships a `--diag inference` subcommand that
+> **Verify in one command.** The consumer app ships a `--diag inference` subcommand that
 > loads both engines and prints the selected provider, the fallback reason, and the
 > full check trail. See
 > [Verifying GPU Acceleration](#verifying-gpu-acceleration) below. The library exposes
 > the same data programmatically via `BaseInferenceEngine.EngineInfo` and the
 > `InferenceEngineOptions.OnSessionInitialized` callback.
 
-For the design rationale behind the native-library plumbing, see
-[`docs/Review___ONNX_Runtime_Missing_Native_RESOLUTION.md`](./Review___ONNX_Runtime_Missing_Native_RESOLUTION.md).
+For the design rationale behind the native-library plumbing, see the
+`Delete + Symlink + Restore` post-Build targets in
+`InferenceEngine.Core/InferenceEngine.Core.csproj` and the runtime check in
+`BaseInferenceEngine.IsRocmRuntimeUsable()`.
 
 ---
 
@@ -156,8 +158,9 @@ relevant pieces, for context:
 
 For the full timeline of the native-library fixes (the original 5 review comments
 plus the 4 additional root-cause fixes for upstream package quirks, SkiaSharp
-split packages, and the SIGSEGV-on-non-ROCm-hosts hazard), see
-[`docs/Review___ONNX_Runtime_Missing_Native_RESOLUTION.md`](./Review___ONNX_Runtime_Missing_Native_RESOLUTION.md).
+split packages, and the SIGSEGV-on-non-ROCm-hosts hazard), see the git history
+of the `Delete + Symlink + Restore` post-Build targets in
+`InferenceEngine.Core/InferenceEngine.Core.csproj`.
 
 ### Compiled-model (.mxr) cache
 
@@ -199,8 +202,8 @@ Notes:
 The fastest end-to-end check is the diagnostics API. In the consumer app:
 
 ```bash
-# InferenceApp: loads both engines and prints provider + fallback + check trail
-InferenceApp.UI --diag inference
+# Consumer app: loads both engines and prints provider + fallback + check trail
+consumer-ui --diag inference
 ```
 
 On a host that is **not yet GPU-ready** (e.g. a stock Debian box that only ships the
@@ -406,7 +409,7 @@ dotnet build --runtime linux-x64 InferenceEngine.Core/InferenceEngine.Core.cspro
 ```
 
 Then verify the library's own provider selection via the diagnostics API (or, in
-InferenceApp, `--diag inference`). A successful MIGraphX path reports:
+the consumer app, `--diag inference`). A successful MIGraphX path reports:
 
 ```text
 Provider : MIGraphX (device 0)
@@ -921,16 +924,16 @@ this guide:
 
 In-repo documentation referenced by this guide:
 
-- [`docs/Review___ONNX_Runtime_Missing_Native_RESOLUTION.md`](./Review___ONNX_Runtime_Missing_Native_RESOLUTION.md) —
-  the design and validation record for the Linux native-library fixes
-  (Delete + Symlink + Restore post-Build targets) and the runtime check in
+- `InferenceEngine.Core/InferenceEngine.Core.csproj` —
+  the Linux native-library fixes (Delete + Symlink + Restore post-Build targets),
+  with the runtime check in
   `BaseInferenceEngine.IsRocmRuntimeUsable()`. Read this if you are debugging
   a `DllNotFoundException` or a SIGSEGV in `libonnxruntime.so`.
 - [`docs/rocm-wsl2-runner-setup.md`](./rocm-wsl2-runner-setup.md) — a worked
   example for setting up a GitHub Actions self-hosted runner inside WSL2 with
   AMD GPU passthrough. Useful as a reference for any non-bare-metal Linux host
   (WSL2, Hyper-V with GPU paravirtualization, KVM with GPU passthrough).
-- [`docs/inferenceapp-integration-guide.md`](./inferenceapp-integration-guide.md) —
+- [`docs/consumer-integration-guide.md`](./consumer-integration-guide.md) —
   end-to-end integration of an `IInferenceEngine<TInput, TOutput>` consumer
   into a real application, including the GPU configuration knobs.
 - [`AGENTS.md`](../AGENTS.md) — repository conventions, build/test commands,

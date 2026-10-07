@@ -19,7 +19,7 @@ consumers never write a subclass at all.
 ```
 
 For full package-setup details (the GitHub Packages feed, `nuget.config`, credentials, CI, and
-version pinning) see [`inferenceapp-integration-guide.md`](inferenceapp-integration-guide.md).
+version pinning) see the root [`README.md`](../README.md) and [`nuget.config`](../nuget.config).
 
 | Surface | Base class | Contract | Yields |
 |---|---|---|---|
@@ -377,7 +377,7 @@ crash triage.
 | B. Streaming | [`../InferenceEngine.Examples/StreamingTextGenerationExample.cs`](../InferenceEngine.Examples/StreamingTextGenerationExample.cs) | [`streaming-inference-guide.md`](streaming-inference-guide.md) |
 | C. Out-of-process | (your `Program.cs` `--worker` entry point + `OutOfProcessBaseInferenceEngine` subclass) | [`out-of-process-inference-engine-design.md`](out-of-process-inference-engine-design.md) |
 | D. Text engines | `TextEmbeddingEngine` / `TextGenerationEngine` (`InferenceEngine.Core.Text`) | [`text-engines-guide.md`](text-engines-guide.md) |
-| Package setup | — | [`inferenceapp-integration-guide.md`](inferenceapp-integration-guide.md) |
+| Package setup | — | [`../nuget.config`](../nuget.config) + [`../README.md`](../README.md) |
 
 ---
 

@@ -20,7 +20,7 @@ over a **length-prefixed JSON pipe** (redirected `stdin`/`stdout`). For the work
 for — **single-shot image inference** — JSON is **not** the bottleneck; GPU inference dominates and
 the pipe's bandwidth is effectively unbounded.
 
-For **streaming video** (detection + identification at frame rate, which InferenceApp also supports)
+For **streaming video** (detection + identification at frame rate, which the consumer app also supports)
 video still does **not** need more bandwidth (a pipe moves GB/s); what it needs is a **cheaper
 encoding** to drop the per-frame base64 (+33%) and double-JSON tax.
 
@@ -30,7 +30,7 @@ the existing pipe, behind the existing `IWorkerSerializer<TInput,TOutput>` seam.
 - MessagePack is **generic-friendly** (`Serialize<T>` works with arbitrary `TInput`/`TOutput`) and
   binary, so `byte[]` flows raw (no base64) and there is no double-JSON-encode. No transport change,
   no schema/codegen.
-- For InferenceApp's video case it is **sufficient**: inference dominates the frame budget, so the
+- For the consumer app's video case it is **sufficient**: inference dominates the frame budget, so the
   one-in-flight round-trip fits comfortably at 30 fps once the encoding tax is removed.
 - **MemoryPack** is the faster alternative but requires consumer type annotation, so it cannot be the
   transparent library default — only a consumer opt-in. See §6.
@@ -116,7 +116,7 @@ image/single-shot inference."*
 
 ## 3. What changes for streaming video
 
-InferenceApp also does streaming-video face recognition and identification. Video does **not** need
+The consumer app also does streaming-video face recognition and identification. Video does **not** need
 more bandwidth (the pipe handles GB/s). What it stresses, in priority order:
 
 ### 3.1 Continuous JSON+base64 CPU (the part the encoding fixes)
@@ -237,7 +237,7 @@ Because the library does not own `PredictionResult`, it **cannot** require that 
 
 - MemoryPack **cannot be the transparent library-default serializer** (unlike MessagePack, whose
   contractless mode serializes unannotated POCOs).
-- MemoryPack **is** an excellent **consumer opt-in**: InferenceApp annotates `PredictionResult` once
+- MemoryPack **is** an excellent **consumer opt-in**: the consumer app annotates `PredictionResult` once
   and selects a `MemoryPackWorkerSerializer<TInput,TOutput>` behind `CreateSerializer()`
   (`OutOfProcessBaseInferenceEngine.cs:58`) for maximum speed.
 
@@ -318,12 +318,12 @@ The decisive question is whether video is **inference-bound** or **IPC-bound**.
 - For the **raw-RGB worst case** (~186 MB/s at 1080p/30 fps): MessagePack makes `byte[]` essentially
   memcpy, so the per-frame serialization CPU collapses from "a full core" to near-nothing. Large win
   if raw frames are ever sent.
-- For the **compressed-frame case** (JPEG, the realistic InferenceApp path): the IPC CPU tax was
+- For the **compressed-frame case** (JPEG, the realistic consumer app path): the IPC CPU tax was
   already modest; MessagePack removes it entirely.
 
 **What it does not fix:** the `SemaphoreSlim(1,1)` serialization (§3.2). Frames still cannot overlap.
 
-**Verdict for InferenceApp (MIGraphX face detection):**
+**Verdict for the consumer app (MIGraphX face detection):**
 
 - Inference ≈ 10–30 ms/frame dominates. With MessagePack, `inference + ipc_rtt` ≈ 15–30 ms + ~1–2 ms,
   comfortably **inside the 33 ms budget for 30 fps**. The one-in-flight model has ample slack, and the
@@ -333,7 +333,7 @@ The decisive question is whether video is **inference-bound** or **IPC-bound**.
   — which only helps when the GPU has idle gaps between frames (it often does not when saturated).
 
 **Conclusion:** "convert JSON → MessagePack and call it good" is a **defensible stopping point** for
-InferenceApp's video workload. It removes the per-frame encoding tax, and the serialized round-trip
+the consumer app's video workload. It removes the per-frame encoding tax, and the serialized round-trip
 fits inside the frame budget because inference dominates. The pipelining/overlap work (§9) is only
 warranted if future profiling shows IPC — not the GPU — is the limiter.
 
