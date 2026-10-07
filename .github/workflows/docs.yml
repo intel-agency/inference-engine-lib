@@ -124,10 +124,19 @@ jobs:
           name: docs-site
           path: _site
 
+      # Inlined equivalent of actions/upload-pages-artifact (its composite body
+      # references upload-artifact by tag, which this repo's full-SHA pinning
+      # policy rejects): tar the site and upload as the `github-pages` artifact
+      # that deploy-pages expects (artifact.tar, uncompressed, dereferenced).
+      - name: Package site artifact (github-pages artifact.tar contract)
+        run: tar --dereference --directory _site -cf artifact.tar .
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          path: _site
+          name: github-pages
+          path: artifact.tar
+          retention-days: 1
 
       - name: Deploy Pages
         id: deployment
