@@ -10,7 +10,7 @@ Thanks for your interest in contributing. This document covers how to build and 
 
 ## Restoring dependencies (current state)
 
-> **Note — private feed required while this repository is pre-public.** Restores that include the Linux x64 runtime need the private GitHub Packages feed configured in [`nuget.config`](nuget.config) (the feed backs `InferenceEngine.ROCm.Runtime.linux-x64`, referenced on the `linux-x64` RID). Set the `NUGET_AUTH_TOKEN` environment variable to a personal access token with the `read:packages` scope before such restores; Windows/macOS restores resolve entirely from nuget.org. This requirement disappears once the ROCm runtime dependency is published on nuget.org — the public-readiness work makes restore fully public and tokenless.
+> **Note — restore is fully public and tokenless.** `InferenceEngine.ROCm.Runtime.linux-x64` (and every other dependency) resolves from nuget.org; [`nuget.config`](nuget.config) declares no private feeds and no credentials are needed on any platform. The lib pins the runtime's public prerelease line (`1.24.1-rc.40`) until the first public stable lands, at which point the pin moves to the stable version.
 
 ## Building and testing
 
@@ -32,7 +32,7 @@ dotnet test --collect:"XPlat Code Coverage"
 - **Standard suite** — unit and engine-contract tests; runs in CI on every push/PR across `ubuntu`, `windows`, and `macos`.
 - **GPU-dependent paths** — tests that require actual GPU inference (DirectML, CoreML, MIGraphX) are skip-gated on hardware presence and **auto-skip on GitHub-hosted runners**; hardware-independent provider-selection and CPU-fallback logic runs everywhere.
 
-To exercise MIGraphX inference end-to-end, the repository defines a self-hosted Linux x64 runner profile with an AMD GPU — registered with labels `self-hosted, linux, x64, amd-gpu` and gated behind the `ROCM_RUNNER_ENABLED` repository variable. The runner needs AMD ROCm userspace (`libmigraphx_c.so.3` + `libamdhip64.so.7`), `/dev/kfd` accessible, and a `NUGET_AUTH_TOKEN` for the private-feed restore. See [`.github/workflows/rocm-gpu-test.yml`](.github/workflows/rocm-gpu-test.yml).
+To exercise MIGraphX inference end-to-end, the repository defines a self-hosted Linux x64 runner profile with an AMD GPU — registered with labels `self-hosted, linux, x64, amd-gpu` and gated behind the `ROCM_RUNNER_ENABLED` repository variable. The runner needs AMD ROCm userspace (`libmigraphx_c.so.3` + `libamdhip64.so.7`) and `/dev/kfd` accessible. See [`.github/workflows/rocm-gpu-test.yml`](.github/workflows/rocm-gpu-test.yml).
 
 ## CI overview
 
