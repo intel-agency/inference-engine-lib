@@ -271,6 +271,27 @@ public sealed class StreamingInferenceEngineTests : IDisposable
         Assert.All(sampled, t => Assert.Equal(1, t));
     }
 
+    // Regression guard for the allocation-free NthLargest. Rented ArrayPool buffers can be larger
+    // than the requested size; the window must track exactly k elements or temp[0] returns the wrong
+    // cutoff. k > 256 forces the ArrayPool rental path (stackalloc otherwise), which previously
+    // operated over the oversized buffer and tracked >k elements.
+    [Theory]
+    [InlineData(1)]     // stackalloc path
+    [InlineData(10)]    // stackalloc path
+    [InlineData(257)]   // ArrayPool path: Rent(257) may return a 512-length buffer
+    [InlineData(299)]   // ArrayPool path
+    public void NthLargest_ReturnsExactKthLargestValue(int k)
+    {
+        // Distinct ascending values: values[i] == i, so the k-th largest of 0..299 is (300 - k).
+        const int V = 300;
+        float[] values = new float[V];
+        for (int i = 0; i < V; i++) values[i] = i;
+
+        float cutoff = BaseStreamingInferenceEngine<int, IReadOnlyList<int>, int>.NthLargest(values, k);
+
+        Assert.Equal(V - k, cutoff);
+    }
+
     // --- Helpers ---
 
     private FakeStreamingEngine CreateEngine(IReadOnlyList<int> tokens)

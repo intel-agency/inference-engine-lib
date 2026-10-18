@@ -1,6 +1,6 @@
-# ROCm Self-Hosted Runner Setup — PRECISION5820 (RX 6700 XT)
+# ROCm Self-Hosted Runner Setup (RX 6700 XT)
 
-**Target machine:** Dell PRECISION5820, Windows 11, AMD Radeon RX 6700 XT (`gfx1031`)  
+**Target environment:** Windows 11 host with an AMD Radeon RX 6700 XT (`gfx1031`) and WSL2 Ubuntu
 **Goal:** Register a GitHub Actions self-hosted runner with labels `self-hosted,linux,x64,amd-gpu`
 inside a WSL2 Ubuntu environment, so the `rocm-gpu-test` CI workflow can execute
 end-to-end ROCm inference tests against real AMD GPU hardware.
@@ -225,7 +225,7 @@ tar xzf ./actions-runner-linux-x64.tar.gz
 ./config.sh \
   --url https://github.com/intel-agency/inference-engine-lib \
   --token <TOKEN> \
-  --name "precision5820-wsl2-amd-gpu" \
+  --name "rocm-runner-01" \
   --labels "self-hosted,linux,x64,amd-gpu" \
   --work "_work" \
   --unattended
@@ -295,7 +295,7 @@ fi
 ## Phase 9 — Verify the Runner Appears in GitHub
 
 1. Go to: <https://github.com/intel-agency/inference-engine-lib/settings/actions/runners>
-2. The runner `precision5820-wsl2-amd-gpu` should appear with status **Idle**.
+2. The runner `rocm-runner-01` should appear with status **Idle**.
 3. Labels should show: `self-hosted`, `linux`, `x64`, `amd-gpu`.
 
 ---
@@ -379,7 +379,7 @@ exposed into WSL2 as long as the machine is powered on.
 
    Or download the **Virtual Driver Control (VDC)** installer manually from the
    [releases page](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases)
-   and run it on the PRECISION5820.
+   and run it on the Windows host.
 
 2. Launch the **Virtual Driver Control** (VDC) app, click **Install**, then use it to
    **add a virtual display** at your preferred resolution (e.g. 1920×1080). The VDD is

@@ -1,10 +1,10 @@
 # Design: Out-of-Process Inference Engine (`OutOfProcessBaseInferenceEngine`)
 
 **Status:** Proposal / handoff for the InferenceEngine.Core team
-**Author:** InferenceApp team (context: AMD ROCm / MIGraphX bring-up)
+**Author:** Consumer app team (context: AMD ROCm / MIGraphX bring-up)
 **Date:** 2026-07-05
 **Target:** `InferenceEngine.Core` (this repo)
-**Related:** `docs/inferenceapp-migraphx-migration-guide.md`, `docs/linux-rocm-config.md`, `docs/engine-info-api-plan-v2.md`
+**Related:** `docs/linux-rocm-config.md`, `docs/engine-info-api-plan-v2.md`
 
 ---
 
@@ -20,12 +20,12 @@ This keeps **GPU UI rendering** *and* **GPU inference** with no compromise.
 
 ## 1. Context & background (why this is needed now)
 
-This work originated from getting MIGraphX to actually load in **InferenceApp** (Avalonia UI, .NET 10) on a Debian 13 / AMD Radeon RX 6700 XT (gfx1031) host. The journey, with evidence the team should not have to re-derive:
+This work originated from getting MIGraphX to actually load in **the consumer app** (Avalonia UI, .NET 10) on a Debian 13 / AMD Radeon RX 6700 XT (gfx1031) host. The journey, with evidence the team should not have to re-derive:
 
 1. **EP code already shipped.** `InferenceEngine.Core` `1.1.0-dev.x` contains the full MIGraphX/HIP path: `BaseInferenceEngine.ConfiguredSessionOptions` → `TryRocmBranch()` probes `/dev/kfd` → `libhsa-runtime64.so` → `libamdhip64.so.7` → `libmigraphx_c.so.3` → `AppendExecutionProvider_MIGraphX(deviceId)` → `new InferenceSession(...)`, with CPU fallback + the `EngineInfo` diagnostic trail.
 2. **Package + native-lib fixes landed.** A consumer-side build target (`ForceRocmOnnxRuntimeLibOnLinux`, now also shipped via this package's `buildTransitive/InferenceEngine.Core.targets`) ensures the ROCm-enabled `libonnxruntime.so` (which exports `OrtSessionOptionsAppendExecutionProvider_MIGraphX`) wins over the vanilla CPU one. See commit history.
 3. **Host ROCm 7.1 installed** (`hip-runtime-amd 7.1`, `migraphx 2.14`). `hip.dlopen` + `migraphx.dlopen` checks PASS.
-4. **Result:** in a **GL-free** process, MIGraphX loads and runs inference correctly. InferenceApp's `--diag inference [--image <face.jpg>]` CLI prints `Provider : MIGraphX (device 0)`, all checks PASS, `[diag] inference ok detections=1`, exit 0. **MIGraphX works.**
+4. **Result:** in a **GL-free** process, MIGraphX loads and runs inference correctly. The consumer app's `--diag inference [--image <face.jpg>]` CLI prints `Provider : MIGraphX (device 0)`, all checks PASS, `[diag] inference ok detections=1`, exit 0. **MIGraphX works.**
 
 The remaining problem is **only** about running MIGraphX *inside the full Avalonia UI process*.
 
@@ -33,13 +33,13 @@ The remaining problem is **only** about running MIGraphX *inside the full Avalon
 
 ## 2. Use case
 
-**InferenceApp** is an Avalonia (.NET 10) desktop app. It uses:
+**The consumer app** is an Avalonia (.NET 10) desktop app. It uses:
 - **Avalonia GPU rendering** (OpenGL/Skia on X11) for its UI, and
 - **MIGraphX inference** (detection + recognition) on the AMD GPU.
 
 Both must run in the same application. Today the engine is constructed in-process via DI (`OnnxInferenceEngine : BaseInferenceEngine<byte[], List<PredictionResult>>`). On a ROCm host this combination aborts at startup (see §3). The product requirement is: **GPU-rendered UI + GPU inference, no software-rendering fallback.**
 
-This is not InferenceApp-specific: any consumer that renders with a GL/Mesa stack (i.e., most GUI apps) and wants MIGraphX on AMD/ROCm will hit the same wall. Putting the solution in `InferenceEngine.Core` benefits all consumers and matches the library's stated role — **platform detection and GPU acceleration are hidden inside the library; consumers just subclass/use the engine.**
+This is not consumer-app-specific: any consumer that renders with a GL/Mesa stack (i.e., most GUI apps) and wants MIGraphX on AMD/ROCm will hit the same wall. Putting the solution in `InferenceEngine.Core` benefits all consumers and matches the library's stated role — **platform detection and GPU acceleration are hidden inside the library; consumers just subclass/use the engine.**
 
 ---
 
@@ -224,18 +224,18 @@ On `Load`, the worker's real engine runs the full probe chain and EP selection (
 
 **Serialization seam:** because `TInput`/`TOutput` cross the boundary, introduce `IWorkerSerializer<TInput, TOutput>` with a default `System.Text.Json` implementation. For `OnnxInferenceEngine` (`byte[]` → `List<PredictionResult>`) this is trivial (base64 input, JSON detections). The generic base must not assume arbitrary `TInput`/`TOutput` are serializable — constrain or require the serializer.
 
-### 4.4 Consumer side (InferenceApp) — worker entry point + opt-in wiring
+### 4.4 Consumer side (the consumer app) — worker entry point + opt-in wiring
 
 Mirrors the existing `--diag inference` headless path:
 
 ```csharp
-// InferenceApp.UI/Program.cs
+// consumer-ui/Program.cs
 if (args.Length > 1 && args[0] == "--worker" && args[1] == "inference")
     return InferenceWorkerHost.RunAsync<byte[], List<PredictionResult>>(
         opts => new OnnxInferenceEngine(opts, logger)).GetAwaiter().GetResult();
 ```
 
-The consumer decides **when** to use OOP (opt-in). The library cannot reliably detect "the host has a GL context loaded," so the host chooses — e.g. InferenceApp uses the OOP proxy on ROCm hosts (`libamdhip64.so.7` present) and the in-process engine elsewhere:
+The consumer decides **when** to use OOP (opt-in). The library cannot reliably detect "the host has a GL context loaded," so the host chooses — e.g. the consumer app uses the OOP proxy on ROCm hosts (`libamdhip64.so.7` present) and the in-process engine elsewhere:
 
 ```csharp
 IInferenceEngine engine = OperatingSystem.IsLinux() && NativeLibrary.TryLoad("libamdhip64.so.7", out _)
@@ -244,7 +244,7 @@ IInferenceEngine engine = OperatingSystem.IsLinux() && NativeLibrary.TryLoad("li
 ```
 
 ### 4.5 Why this preserves the contract
-- **Diagnostics:** `EngineInfo` (provider, fallback reason, ordered `Checks`, `IsRocmSessionActive`) is produced by the worker's real engine and mirrored onto the proxy. Existing consumers of the EngineInfo API (e.g. InferenceApp's `EngineDiagnosticsViewModel` via `OnSessionInitialized`) keep working unchanged.
+- **Diagnostics:** `EngineInfo` (provider, fallback reason, ordered `Checks`, `IsRocmSessionActive`) is produced by the worker's real engine and mirrored onto the proxy. Existing consumers of the EngineInfo API (e.g. the consumer app's `EngineDiagnosticsViewModel` via `OnSessionInitialized`) keep working unchanged.
 - **EP selection:** `TryRocmBranch()` etc. run in the worker (a normal `BaseInferenceEngine`). The host never runs EP selection.
 - **Error semantics:** worker exceptions are surfaced as the same exception types / `EngineInfo` fallback states the in-process engine would produce.
 
@@ -254,7 +254,7 @@ IInferenceEngine engine = OperatingSystem.IsLinux() && NativeLibrary.TryLoad("li
 
 1. **Extend `BaseInferenceEngine` (with a protected seam) vs implement `IInferenceEngine` directly.** `IInferenceEngine<TInput, TOutput>` **already exists** — the open question is what the proxy derives from. `BaseStreamingInferenceEngine` sets the precedent of "extend `BaseInferenceEngine`, override execution," but — unlike streaming — the OOP proxy must hold **no** in-process session and must mirror `EngineInfo`/`IsRocmSessionActive` from the worker (currently `private set`). **Recommend** extend-`BaseInferenceEngine` + a narrow protected seam (`ApplyRemoteEngineInfo`) for consistency and to preserve the diagnostics surface transparently; the team may instead prefer implement-`IInferenceEngine`-directly for stronger isolation (no `_session` field, no base change, but consumers depend on the interface, not `BaseInferenceEngine`).
 2. **Serialization constraint on `TInput`/`TOutput`.** Default JSON serializer; require `IWorkerSerializer` for non-trivially-serializable types. Decide whether to constrain the generic params.
-3. **One worker per engine, or a multi-engine worker.** InferenceApp needs detection + recognition. Recommend **one worker per engine** (simplest lifecycle, isolated MIGraphX compile) unless profiling favors a shared worker.
+3. **One worker per engine, or a multi-engine worker.** The consumer app needs detection + recognition. Recommend **one worker per engine** (simplest lifecycle, isolated MIGraphX compile) unless profiling favors a shared worker.
 4. **Worker discovery.** `WorkerExecutablePath` is consumer-supplied (the library can't know the consumer's exe). Provide a sensible default convention (e.g. same exe + `--worker <id>`) and let the consumer override.
 5. **Auto vs opt-in.** Keep opt-in (host decides). Optionally add a helper `OutOfProcessEngineOptions.ForCurrentProcess()` that detects ROCm capability to reduce consumer boilerplate — but never auto-launch a worker without consumer consent.
 6. **Lifecycle/resilience.** Worker warm-up state, crash detection + supervised restart, startup/inference timeouts, graceful shutdown on host exit, and a loading/progress surface for the ~85s first MIGraphX compile.
@@ -276,7 +276,7 @@ IInferenceEngine engine = OperatingSystem.IsLinux() && NativeLibrary.TryLoad("li
 - [ ] `OutOfProcessBaseInferenceEngine<TInput,TOutput>` exists in `InferenceEngine.Core`, derives from `BaseInferenceEngine<TInput,TOutput>`, and exposes `LoadAsync`/`PredictAsync`/`EngineInfo`/`IsRocmSessionActive`/`FallbackReason` with identical semantics.
 - [ ] `InferenceWorkerHost.RunAsync` runs a consumer-provided engine over the documented IPC protocol.
 - [ ] Host process loads **no** `onnxruntime`/`comgr` native lib (verify with `LD_DEBUG=files` / `lsof`); worker process loads **no** `libGL`/`libLLVM-19`.
-- [ ] Repro: on the Debian/ROCm/gfx1031 host, InferenceApp launches with **GPU rendering**, runs MIGraphX inference, captures output, exit 0 — **no** `LLVM ERROR`.
+- [ ] Repro: on the Debian/ROCm/gfx1031 host, the consumer app launches with **GPU rendering**, runs MIGraphX inference, captures output, exit 0 — **no** `LLVM ERROR`.
 - [ ] `EngineInfo` reported by the proxy matches the worker's (provider=`MIGraphX`, `IsRocmSessionActive=true`, full check trail) — diagnostics UI unchanged.
 - [ ] Existing in-process engine behavior and all current tests unchanged; OOP is purely additive and opt-in.
 
@@ -284,13 +284,13 @@ IInferenceEngine engine = OperatingSystem.IsLinux() && NativeLibrary.TryLoad("li
 
 ## 8. References / repro
 
-- **Migration context:** `docs/inferenceapp-migraphx-migration-guide.md`, `docs/linux-rocm-config.md`.
+- **Migration context:** `docs/linux-rocm-config.md`.
 - **EngineInfo API (mirrored over IPC):** `docs/engine-info-api-plan-v2.md`.
 - **Repro the working path (GL-free):**
   ```bash
-  HSA_OVERRIDE_GFX_VERSION=10.3.0 dotnet run --project InferenceApp.UI -c Release -- --diag inference --image <face.jpg>
+  HSA_OVERRIDE_GFX_VERSION=10.3.0 dotnet run --project consumer-ui -c Release -- --diag inference --image <face.jpg>
   # → Provider : MIGraphX, all checks PASS, detections=N, exit 0
   ```
-- **Repro the crash (full UI, in-process):** launch the InferenceApp UI on the ROCm host → `LLVM ERROR: … registered more than once` → SIGABRT.
+- **Repro the crash (full UI, in-process):** launch the consumer app UI on the ROCm host → `LLVM ERROR: … registered more than once` → SIGABRT.
 - **Confirm the dlopen chain:** run the UI under `LD_DEBUG=files` and grep for `libGL.so.1 … libcoreclr.so` and `libLLVM.so.19.1 … libgallium`.
-- InferenceApp consumer-side artifacts: `--diag inference` CLI (`InferenceApp.UI/Diagnostics/DiagInferenceCli.cs`), the `ForceSoftwareRendering` opt-in flag (`AppSettings` / `INFERENCEAPP_FORCE_SOFTWARE_RENDERING`), and the launch config fix in `.vscode/launch.json`.
+- Consumer-app artifacts: `--diag inference` CLI (`consumer-ui/Diagnostics/DiagInferenceCli.cs`), the `ForceSoftwareRendering` opt-in flag (`AppSettings` / `FORCE_SOFTWARE_RENDERING`), and the launch config fix in `.vscode/launch.json`.

@@ -23,7 +23,7 @@ using InferenceEngine.Core;
 using InferenceEngine.Core.Text;
 
 var options = new InferenceEngineOptions { UseGpuAcceleration = false };
-await using var engine = new TextEmbeddingEngine(options);
+using var engine = new TextEmbeddingEngine(options);
 await engine.LoadAsync();
 float[] emb = await engine.PredictAsync("docker container");
 ```
@@ -54,7 +54,7 @@ names/shapes), at the cost of **O(n²)** compute. A KV-cache optimization that r
 
 ```csharp
 var options = new InferenceEngineOptions { UseGpuAcceleration = false };
-await using var engine = new TextGenerationEngine(options);
+using var engine = new TextGenerationEngine(options);
 await foreach (string chunk in engine.PredictStreamingAsync("What is 2 + 2?"))
 {
     Console.Write(chunk);

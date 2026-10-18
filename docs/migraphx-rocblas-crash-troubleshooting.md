@@ -90,8 +90,8 @@ A 0-byte or missing `TensileLibrary.dat`, or a `rocblas` whose version doesn't m
 After reinstalling/fixing, confirm MIGraphX initializes cleanly:
 
 ```bash
-# InferenceApp diagnostics CLI (loads both engines, prints provider + check trail):
-InferenceApp.UI --diag inference
+# Consumer app diagnostics CLI (loads both engines, prints provider + check trail):
+consumer-ui --diag inference
 # Expect: Provider : MIGraphX (device 0)  /  Fallback : no   (no rocBLAS error)
 ```
 

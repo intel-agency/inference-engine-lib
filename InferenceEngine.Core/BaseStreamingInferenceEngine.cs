@@ -278,10 +278,13 @@ public abstract class BaseStreamingInferenceEngine<TInput, TOutput, TStep>
     /// Operates on a vocab-length slice of a (possibly larger) rented array. Allocation-free (uses
     /// stackalloc for small k, an ArrayPool rental otherwise) so the hot sampling path never hits the
     /// managed heap — the previous PriorityQueue approach allocated on every token-generation step.</summary>
-    private static float NthLargest(ReadOnlySpan<float> values, int k)
+    internal static float NthLargest(ReadOnlySpan<float> values, int k)
     {
         float[]? rented = null;
-        Span<float> temp = k <= 256 ? stackalloc float[k] : (rented = ArrayPool<float>.Shared.Rent(k));
+        // Slice the rented array to exactly k: ArrayPool.Rent may hand back a larger buffer (e.g.
+        // 512 for k=300), and operating on the full buffer would track more than k elements and
+        // yield the wrong (k+slack)-th-largest cutoff.
+        Span<float> temp = k <= 256 ? stackalloc float[k] : (rented = ArrayPool<float>.Shared.Rent(k)).AsSpan(0, k);
         try
         {
             temp.Fill(float.NegativeInfinity);

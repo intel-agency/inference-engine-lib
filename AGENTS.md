@@ -50,7 +50,7 @@ role: InferenceEngine Library Agent
       <description>Cross-platform CI build/test workflow.</description>
     </entry>
     <entry>
-      <path>.github/workflows/publish.yml</path>
+      <path>.github/workflows/publish-nuget.yml</path>
       <description>Release branch packaging and NuGet publication workflow.</description>
     </entry>
   </repository_map>
@@ -151,7 +151,7 @@ role: InferenceEngine Library Agent
       </workflow>
       <workflow>
         <name>Publish NuGet</name>
-        <file>.github/workflows/publish.yml</file>
+        <file>.github/workflows/publish-nuget.yml</file>
         <trigger>Push to `release`</trigger>
         <description>Packs `InferenceEngine.Core` and publishes packages.</description>
       </workflow>

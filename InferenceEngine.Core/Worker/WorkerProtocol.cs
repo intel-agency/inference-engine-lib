@@ -18,6 +18,10 @@ public sealed class WorkerEngineOptions
     public bool UseGpuAcceleration { get; set; } = true;
     public int DeviceId { get; set; } = 0;
     public bool WarmupOnLoad { get; set; } = false;
+
+    /// <summary>MIGraphX compiled-model cache directory (null = worker-side default,
+    /// empty string = disabled). Mirrors <see cref="InferenceEngineOptions.MIGraphXModelCacheDirectory"/>.</summary>
+    public string? MIGraphXModelCacheDirectory { get; set; }
 }
 
 /// <summary>
