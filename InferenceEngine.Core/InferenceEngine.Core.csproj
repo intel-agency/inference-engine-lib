@@ -102,7 +102,7 @@
        The MIGraphX EP replaced the deprecated ROCm EP in ORT v1.24.1. The native package
        version now matches the base Microsoft.ML.OnnxRuntime managed bindings (both 1.24.1). -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.36" GeneratePathProperty="true" />
+    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1-rc.40" GeneratePathProperty="true" />
   </ItemGroup>
   <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
        No separate NuGet package exists for CoreML acceleration. -->
