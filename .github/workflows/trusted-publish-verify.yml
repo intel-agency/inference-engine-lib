@@ -1,0 +1,34 @@
+name: Trusted Publishing Verify
+
+# Dry-run of the nuget.org trusted-publishing OIDC exchange — proves the
+# nuget.org policy matches this workflow WITHOUT pushing any package.
+# Run manually: Actions → Trusted Publishing Verify → Run workflow.
+# A green run means `publish-nuget.yml`'s create-release job can obtain a
+# short-lived push key on demand (its classic-key fallback won't be needed).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # GitHub OIDC token issuance
+
+jobs:
+  verify:
+    name: OIDC exchange dry-run (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: nuget-login
+        with:
+          user: intel-agent
+
+      - name: Verify exchange
+        env:
+          KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::OIDC exchange returned no key — check the nuget.org trusted publishing policy"
+            exit 1
+          fi
+          echo "OIDC exchange OK — nuget.org policy matches this workflow (key obtained, nothing pushed)"
