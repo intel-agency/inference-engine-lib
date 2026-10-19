@@ -21,21 +21,22 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    outputs:
-      artifact-name: build-output-${{ matrix.os }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        
+
       - name: Build and Test
         uses: ./.github/actions/build-and-test
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           nuget-token: ${{ secrets.GITHUB_TOKEN }}
-          upload-artifacts: 'true'
-          artifact-retention-days: '30'
-          artifact-name: build-output-${{ matrix.os }}
+          # No cross-job build-artifact handoff: the pack job builds for itself.
+          # Large artifacts (Core bin with native libs, per OS) repeatedly hit the
+          # org's Actions storage quota and failed this pipeline's uploads — same
+          # class as the June fix/ci-artifact-quota incident. Test-result uploads
+          # inside the action remain best-effort.
+          upload-artifacts: 'false'
 
   pack:
     name: Pack NuGet
@@ -51,16 +52,17 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-          
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: build-output-ubuntu-latest
-          path: .
+
+      # Build in-job instead of downloading the ubuntu build-output artifact:
+      # the handoff was the pipeline's largest storage liability and failed
+      # outright whenever the org artifact quota was exhausted.
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: dotnet restore
+
+      - name: Build Release
+        run: dotnet build InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --no-restore
 
       - name: Compute Package Version
         id: version
