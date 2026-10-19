@@ -20,6 +20,8 @@ Public-readiness phase: license, packaging, governance, documentation, and publi
 
 ### Changed
 
+- Public dependency chain: `InferenceEngine.ROCm.Runtime.linux-x64` pinned to the public nuget.org stable line (`1.24.1.44`; briefly `1.24.1-rc.40`, previously private-feed-only `1.24.1.36`); `nuget.config` drops the private GitHub Packages source — restore is fully public and tokenless on every platform
+
 - Dependency updates: `Microsoft.SourceLink.GitHub` 8.0.0 → 10.0.401 (fixes NU1902 / GHSA-23fw-v26w-5fgq), `Microsoft.ML.OnnxRuntime.DirectML` 1.23.0 → 1.24.1 (version-matched to the base ONNX Runtime package), `Microsoft.Extensions.Logging.Abstractions` 10.0.3 → 10.0.12, and `Microsoft.ML.Tokenizers` 1.0.3 → 2.0.0
 - Publish workflow restructured: GitHub Releases (nupkg, snupkg, and `SHA256SUMS.txt`) plus NuGet.org publishing run behind the protected `release` environment; GitHub Packages publishing continues for `development`/`main` pre-releases
 
