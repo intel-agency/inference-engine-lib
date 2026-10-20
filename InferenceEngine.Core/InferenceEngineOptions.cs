@@ -87,5 +87,13 @@ namespace InferenceEngine.Core
         /// </para>
         /// </summary>
         public Action<InferenceEngineInfo>? OnSessionInitialized { get; set; }
+
+        /// <summary>
+        /// Maximum size in bytes of a single model (or tokenizer asset) download. Downloads whose
+        /// Content-Length or running byte count exceeds this are aborted and the partial file is
+        /// deleted. Must be positive; the default is 2 GiB. This is a safety cap against
+        /// compromised or misbehaving download sources, not a tuning knob.
+        /// </summary>
+        public long MaxModelDownloadBytes { get; set; } = ModelProviders.DownloadingModelProvider.DefaultMaxDownloadBytes;
     }
 }
