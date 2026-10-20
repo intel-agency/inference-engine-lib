@@ -89,9 +89,13 @@ runs:
       run: reportgenerator -reports:"InferenceEngine.Tests/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage-report" -reporttypes:Html
       shell: bash
       
+    # Best-effort: the org's Actions artifact storage runs near its quota
+    # and the counter recalculates only every 6-12h; reports are ephemeral
+    # CI byproducts and must not fail build/test gating.
     - name: Upload test results and coverage
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       if: always()
+      continue-on-error: true
       with:
         name: test-results-${{ runner.os }}
         path: |
