@@ -49,8 +49,43 @@ stale `origin/*` refs. Root causes and mechanical remedies:
 | 3 | Branch operations against stale refs | Policy: `git fetch --all --prune` precedes every branch create/rebase/PR/merge/state-report | PR #40 |
 | 4 | Safety disabled without testing | Policy: test-before-disable — never disable a protection without first proving it fails | PR #40 |
 
+## 2026-10-20 program completion (post-assessment wave)
+
+**Coverage program — DONE.** Owner target (2026-10-20): >90% across the ENTIRE codebase
+including Examples. Final measurement on `development` @ `a82019e` (full hermetic suite,
+305 passed / 0 failed / 5 skipped):
+
+| Metric | Result |
+|---|---|
+| Whole codebase line | **97.9%** (baseline 75.7%) |
+| Whole codebase branch | **92.2%** |
+| Core / Examples (line) | 97.6% / 97.3% |
+
+Delivered by: #45 (MEDIUM-1 tests), #46 (W2 worker-IPC fault harness), #47 (W4 platform seam +
+FaceDetection CI un-exclusion + Examples tests), #48 (W1 text engines), #49 (W3 core engine
+lifecycle/KV-cache/provider paths). FaceDetection CI cost: +1/+7/+14 s per OS.
+
+**Runner pinning — DONE (#44):** all workflows on `ubuntu-24.04` / `windows-2025` / `macos-15`;
+no `-latest` remains.
+
+**MEDIUM-3 progress — OIDC debut PROVEN (1.2.17, 2026-10-20 04:26Z):** `NuGet login (OIDC →
+temp API key): success`; `InferenceEngine.Core 1.2.17` pushed to nuget.org **keyless** via
+trusted publishing (GitHub Release `v1.2.17` with SHA256SUMS). Remaining for MEDIUM-3: drop
+the classic-key fallback + rotate/delete the `NUGET_API_KEY` secret after one more clean OIDC
+release.
+
+**Build-provenance attestation — pending next promote:** the attestation step (#40) lives on
+`development`; `main`/`release` were last promoted before #40–#49 merged, so 1.2.17's workflow
+had no attest step (attestation 404 is expected, not a failure). The next promote cycle
+(development → main → release) ships the gate, pinning, Dependabot config, and attestation to
+the release path — target release 1.2.18.
+
+**Follow-up backlog:** populate `sha256` fields in `models.json` (download each registered
+model, hash, commit) to activate integrity verification for the shipped catalog; branch-pass
+for OutOfProcess (88.9%) optional.
+
 **Exposure accounting (verified 2026-10-20 01:35Z, fresh refs):**
-- `45253dd` — in `main` + `development`. Remediation: shallow signed rebuild of the affected range, force-push both branches from one consistent chain (development strictly ancestor of main), pending explicit owner go.
+- `45253dd` — was in `main` + `development`; **PURGED 2026-10-20 ~04:00Z** via shallow signed rebuild (owner-authorized): both branches force-pushed from one consistent rebuilt chain, trees byte-identical, shared merge-base `3f01d5f` (signed); post-push ancestry verified. Zero origin branches carry it afterward.
 - `eaafd0f` — only on PR #40's branch; re-signed before merge (this PR).
 - `f7255fa` — unreachable from any origin branch (superseded by the execution thread's signed `ebfdfd9`); local remnant only.
 - `8eae4fa` — deep history (Feb 2026); B2 disposition above.
