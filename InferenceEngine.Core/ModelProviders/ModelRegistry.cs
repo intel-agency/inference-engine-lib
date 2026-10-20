@@ -50,6 +50,16 @@ namespace InferenceEngine.Core.ModelProviders
         }
 
         /// <summary>
+        /// Gets the full registry entry for a model by name.
+        /// </summary>
+        /// <param name="modelName">Name of the model file (e.g., "yolo11n.onnx")</param>
+        /// <returns>The registry entry, or null if not found</returns>
+        public ModelRegistryEntry? GetModelEntry(string modelName)
+        {
+            return _entries.TryGetValue(modelName, out var entry) ? entry : null;
+        }
+
+        /// <summary>
         /// Checks if a model is registered.
         /// </summary>
         /// <param name="modelName">Name of the model file</param>
@@ -248,5 +258,13 @@ namespace InferenceEngine.Core.ModelProviders
         /// URLs to download the model from, in priority order.
         /// </summary>
         public string[] Urls { get; set; } = Array.Empty<string>();
+
+        /// <summary>
+        /// Optional expected SHA-256 of the model file, as 64 lowercase hex characters.
+        /// When present, <see cref="DownloadingModelProvider"/> verifies the downloaded
+        /// file against it and rejects mismatches; when absent, the download is accepted
+        /// but logged as unverified.
+        /// </summary>
+        public string? Sha256 { get; set; }
     }
 }

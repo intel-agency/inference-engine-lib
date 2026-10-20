@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-2025, macos-15]
 
     steps:
       - name: Checkout repository
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-2025, macos-15]
 
     # NOTE (T6): the GPU/MIGraphX provider tests (SkippableFact gated on /dev/kfd +
     # libamdhip64.so.7 + libmigraphx_c.so.3) always SKIP on GitHub-hosted runners because those
@@ -101,7 +101,7 @@ jobs:
       - name: Run tests with coverage
         run: >
           dotnet test --configuration Release --no-build --verbosity normal
-          --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests"
+          --filter "FullyQualifiedName!~NativeLibraryValidationTests"
           --collect:"XPlat Code Coverage"
         shell: bash
 
@@ -134,13 +134,13 @@ jobs:
 
   # ── Stage 3: PR coverage comment ────────────────────────────────────────────
   # Posts/updates the MarkdownSummaryGithub coverage summary as a PR comment.
-  # ubuntu-latest is the coverage authority; only that OS leg produces the
+  # ubuntu-24.04 is the coverage authority; only that OS leg produces the
   # summary the comment embeds. Re-runs update the SAME comment in place
   # (found via the <!-- coverage-summary --> marker) instead of stacking new
   # comments on every push.
   coverage-comment:
     name: Coverage comment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test]
     if: github.event_name == 'pull_request'
     # Informational only: when a quota-blocked upload left no artifact to

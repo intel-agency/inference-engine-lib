@@ -256,33 +256,37 @@ public sealed class EngineInfoTests : IDisposable
         Assert.Equal(1, callCount);
     }
 
-    [SkippableFact]
-    public async Task EngineInfo_ProviderOptions_ReflectsDeviceId_WhenMIGraphXActive()
+    // W4: platform-gated tests converted from SkippableFact (which permanently skipped on
+    // hosts without /dev/kfd, without a GPU, or on the "wrong" OS) into deterministic theory
+    // tests driven through the BaseInferenceEngine platform/probe seams via SimulatedPlatformEngine
+    // (below). Each theory runs the real provider-selection + session-construction pipeline against
+    // a forced platform; only the OS check, KFD check, dlopen probes, and EP append are simulated.
+    // Still gated on the ORT native library, which the tests really do use for session construction.
+    [SkippableTheory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task EngineInfo_ProviderOptions_ReflectsDeviceId_WhenMIGraphXActive(int deviceId)
     {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime not usable on this host.");
 
         var modelPath = CreateTestModel();
 
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
+        var engine = NewSimulatedEngine(
+            new InferenceEngineOptions
+            {
+                UseGpuAcceleration = true,
+                WarmupOnLoad = false,
+                DeviceId = deviceId,
+                ModelProvider = new LocalModelProvider(modelPath),
+            },
+            HostPlatform.LinuxX64);
 
         await engine.LoadAsync();
 
-        if (engine.EngineInfo.Provider == InferenceProvider.MIGraphX)
-        {
-            // M2: device_id is now surfaced as a real provider option (was a stub returning Empty).
-            Assert.NotEmpty(engine.EngineInfo.ProviderOptions);
-            Assert.Equal(engine.EngineInfo.DeviceId.ToString(), engine.EngineInfo.ProviderOptions["device_id"]);
-        }
+        // M2: device_id is now surfaced as a real provider option (was a stub returning Empty).
+        Assert.Equal(InferenceProvider.MIGraphX, engine.EngineInfo.Provider);
+        Assert.NotEmpty(engine.EngineInfo.ProviderOptions);
+        Assert.Equal(deviceId.ToString(), engine.EngineInfo.ProviderOptions["device_id"]);
     }
 
     // T1: the native-recoverable fallback branch — the most complex path — asserts
@@ -367,68 +371,42 @@ public sealed class EngineInfoTests : IDisposable
         }
     }
 
-    // --- Integration tests (SkippableFact for platform-specific) ---
+    // --- Simulated-platform provider-selection tests (W4: converted from host-gated
+    // SkippableFacts that skipped on any CI runner) ---
 
-    [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithKfd_MIGraphXWithAllChecksPassed()
+    [SkippableTheory]
+    [InlineData(HostPlatform.LinuxX64)]
+    public async Task EngineInfo_RocmBranch_AllPreconditionsPass_MIGraphXWithAllChecksPassed(HostPlatform platform)
     {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
-        Skip.IfNot(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime not usable on this host.");
 
         var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: true);
 
         await engine.LoadAsync();
 
-        Skip.IfNot(
-            engine.EngineInfo.Provider == InferenceProvider.MIGraphX,
-            $"MIGraphX EP not available in this ONNX Runtime build (got {engine.EngineInfo.Provider}, fallback={engine.EngineInfo.FallbackReason})");
-
+        Assert.Equal(InferenceProvider.MIGraphX, engine.EngineInfo.Provider);
         Assert.False(engine.EngineInfo.IsFallback);
         Assert.Equal(InferenceFallbackReason.None, engine.EngineInfo.FallbackReason);
 
-        var kfdCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "kfd.present");
-        Assert.NotNull(kfdCheck);
-        Assert.Equal(CheckResult.Passed, kfdCheck.Result);
-
-        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
-        Assert.NotNull(hipCheck);
-        Assert.Equal(CheckResult.Passed, hipCheck.Result);
-
-        var mgxCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "migraphx.dlopen");
-        Assert.NotNull(mgxCheck);
-        Assert.Equal(CheckResult.Passed, mgxCheck.Result);
+        foreach (var name in new[] { "kfd.present", "hsa.dlopen", "hip.dlopen", "migraphx.dlopen", "migraphx.append", "migraphx.session" })
+        {
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == name);
+            Assert.NotNull(check);
+            Assert.Equal(CheckResult.Passed, check!.Result);
+        }
     }
 
-    [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithoutKfd_CpuWithKfdDeviceMissing()
+    [SkippableTheory]
+    [InlineData(HostPlatform.LinuxX64)]
+    public async Task EngineInfo_KfdMissing_CpuWithKfdDeviceMissing(HostPlatform platform)
     {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.If(File.Exists("/dev/kfd"), "/dev/kfd is present; test requires it to be absent.");
 
         var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: false, allProbesLoadable: true, appendSucceeds: true);
 
         await engine.LoadAsync();
 
@@ -436,171 +414,195 @@ public sealed class EngineInfoTests : IDisposable
         Assert.True(engine.EngineInfo.IsFallback);
         Assert.Equal(InferenceFallbackReason.KfdDeviceMissing, engine.EngineInfo.FallbackReason);
 
-        var kfdCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "kfd.present");
-        Assert.NotNull(kfdCheck);
-        Assert.Equal(CheckResult.Failed, kfdCheck.Result);
-    }
+        AssertResult("kfd.present", CheckResult.Failed);
+        AssertResult("hsa.dlopen", CheckResult.Skipped);   // skipped: precondition failed
+        AssertResult("migraphx.session", CheckResult.Skipped);
 
-    [SkippableFact]
-    public async Task EngineInfo_Windows_DirectMLWithAllChecksPassed()
-    {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Test requires Windows platform");
-        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-
-        var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
+        void AssertResult(string name, CheckResult expected)
         {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
-
-        await engine.LoadAsync();
-
-        if (engine.EngineInfo.Provider == InferenceProvider.DirectML)
-        {
-            Assert.False(engine.EngineInfo.IsFallback);
-            var dmlCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "dml.append");
-            Assert.NotNull(dmlCheck);
-            Assert.Equal(CheckResult.Passed, dmlCheck.Result);
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == name);
+            Assert.NotNull(check);
+            Assert.Equal(expected, check!.Result);
         }
     }
 
-    [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithKfd_CpuWithHsaRuntimeUnloadable()
+    [SkippableTheory]
+    [InlineData("libhsa-runtime64.so", InferenceFallbackReason.HsaRuntimeUnloadable, new string[0])]
+    [InlineData("libamdhip64.so.7", InferenceFallbackReason.HipRuntimeMissing, new[] { "libhsa-runtime64.so" })]
+    [InlineData("libmigraphx_c.so.3", InferenceFallbackReason.MIGraphXRuntimeMissing,
+        new[] { "libhsa-runtime64.so", "libamdhip64.so.7" })]
+    public async Task EngineInfo_RocmBranch_RuntimeUnloadable_CpuFallbackWithFailingDlopenCheck(
+        string failingLibrary, InferenceFallbackReason expectedReason, string[] precedingLibraries)
     {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
         Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
-        Skip.If(IsRocmRuntimeUsableOnHost(), "ROCm HSA runtime IS loadable; test requires it to be missing.");
 
         var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), HostPlatform.LinuxX64,
+            kfdPresent: true,
+            probe: name => (name != failingLibrary, (string?)null),
+            appendSucceeds: true);
 
         await engine.LoadAsync();
 
         Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
         Assert.True(engine.EngineInfo.IsFallback);
-        Assert.Equal(InferenceFallbackReason.HsaRuntimeUnloadable, engine.EngineInfo.FallbackReason);
+        Assert.Equal(expectedReason, engine.EngineInfo.FallbackReason);
 
-        var kfdCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "kfd.present");
-        Assert.NotNull(kfdCheck);
-        Assert.Equal(CheckResult.Passed, kfdCheck.Result);
-
-        var hsaCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hsa.dlopen");
-        Assert.NotNull(hsaCheck);
-        Assert.Equal(CheckResult.Failed, hsaCheck.Result);
-    }
-
-    [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithKfd_CpuWithHipRuntimeMissing()
-    {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
-        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
-        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm HSA runtime not usable; test requires it.");
-        Skip.If(IsHipRuntimeUsableOnHost(), "HIP runtime IS loadable; test requires it to be missing.");
-
-        var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
+        foreach (var lib in precedingLibraries)
         {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
-
-        await engine.LoadAsync();
-
-        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
-        Assert.True(engine.EngineInfo.IsFallback);
-        Assert.Equal(InferenceFallbackReason.HipRuntimeMissing, engine.EngineInfo.FallbackReason);
-
-        var hsaCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hsa.dlopen");
-        Assert.NotNull(hsaCheck);
-        Assert.Equal(CheckResult.Passed, hsaCheck.Result);
-
-        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
-        Assert.NotNull(hipCheck);
-        Assert.Equal(CheckResult.Failed, hipCheck.Result);
-        Assert.Contains("libamdhip64.so.7", hipCheck.Detail);
-    }
-
-    [SkippableFact]
-    public async Task EngineInfo_LinuxX64WithKfd_CpuWithMIGraphXRuntimeMissing()
-    {
-        Skip.IfNot(
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            RuntimeInformation.ProcessArchitecture == Architecture.X64,
-            "Test requires Linux x64 platform");
-        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-        Skip.IfNot(File.Exists("/dev/kfd"), "/dev/kfd not present on this host.");
-        Skip.IfNot(IsRocmRuntimeUsableOnHost(), "ROCm HSA runtime not usable; test requires it.");
-        Skip.IfNot(IsHipRuntimeUsableOnHost(), "HIP runtime not usable; test requires it.");
-        Skip.If(IsMIGraphXRuntimeUsableOnHost(), "MIGraphX runtime IS loadable; test requires it to be missing.");
-
-        var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
-
-        await engine.LoadAsync();
-
-        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
-        Assert.True(engine.EngineInfo.IsFallback);
-        Assert.Equal(InferenceFallbackReason.MIGraphXRuntimeMissing, engine.EngineInfo.FallbackReason);
-
-        var hipCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "hip.dlopen");
-        Assert.NotNull(hipCheck);
-        Assert.Equal(CheckResult.Passed, hipCheck.Result);
-
-        var mgxCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "migraphx.dlopen");
-        Assert.NotNull(mgxCheck);
-        Assert.Equal(CheckResult.Failed, mgxCheck.Result);
-        Assert.Contains("libmigraphx_c.so.3", mgxCheck.Detail);
-    }
-
-    [SkippableFact]
-    public async Task EngineInfo_MacOS_CoreMLWithAllChecksPassed()
-    {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "Test requires macOS platform");
-        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
-
-        var modelPath = CreateTestModel();
-
-        var engine = CreateEngine(new InferenceEngineOptions
-        {
-            UseGpuAcceleration = true,
-            WarmupOnLoad = false,
-            ModelProvider = new LocalModelProvider(modelPath),
-        });
-
-        await engine.LoadAsync();
-
-        if (engine.EngineInfo.Provider == InferenceProvider.CoreML)
-        {
-            Assert.False(engine.EngineInfo.IsFallback);
-            var coremlCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "coreml.append");
-            Assert.NotNull(coremlCheck);
-            Assert.Equal(CheckResult.Passed, coremlCheck.Result);
+            var checkName = lib switch
+            {
+                "libhsa-runtime64.so" => "hsa.dlopen",
+                "libamdhip64.so.7" => "hip.dlopen",
+                _ => throw new ArgumentException(lib),
+            };
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == checkName);
+            Assert.NotNull(check);
+            Assert.Equal(CheckResult.Passed, check!.Result);
         }
+
+        // The failing probe reports a null error string, so the engine surfaces its built-in
+        // detail (install hint naming the library for hip/migraphx, the TryLoad message for hsa).
+        var failingCheckName = failingLibrary switch
+        {
+            "libhsa-runtime64.so" => "hsa.dlopen",
+            "libamdhip64.so.7" => "hip.dlopen",
+            "libmigraphx_c.so.3" => "migraphx.dlopen",
+            _ => throw new ArgumentException(failingLibrary),
+        };
+        var failingCheck = engine.EngineInfo.Checks.First(c => c.Name == failingCheckName);
+        Assert.Equal(CheckResult.Failed, failingCheck.Result);
+    }
+
+    [SkippableTheory]
+    [InlineData(HostPlatform.WinX64)]
+    [InlineData(HostPlatform.WinArm64)]
+    public async Task EngineInfo_Windows_DirectMLWithAllChecksPassed(HostPlatform platform)
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: true);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.DirectML, engine.EngineInfo.Provider);
+        Assert.False(engine.EngineInfo.IsFallback);
+
+        var dmlCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "dml.append");
+        Assert.NotNull(dmlCheck);
+        Assert.Equal(CheckResult.Passed, dmlCheck!.Result);
+    }
+
+    [SkippableTheory]
+    [InlineData(HostPlatform.WinX64)]
+    [InlineData(HostPlatform.WinArm64)]
+    public async Task EngineInfo_Windows_DirectMLAppendFails_CpuWithProviderAppendFailed(HostPlatform platform)
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: false);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.ProviderAppendFailed, engine.EngineInfo.FallbackReason);
+
+        AssertResult("dml.append", CheckResult.Failed);
+        AssertResult("dml.session", CheckResult.Skipped);
+
+        void AssertResult(string name, CheckResult expected)
+        {
+            var check = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == name);
+            Assert.NotNull(check);
+            Assert.Equal(expected, check!.Result);
+        }
+    }
+
+    [SkippableTheory]
+    [InlineData(HostPlatform.OSX64)]
+    [InlineData(HostPlatform.OSXArm64)]
+    public async Task EngineInfo_MacOS_CoreMLWithAllChecksPassed(HostPlatform platform)
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: true);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.CoreML, engine.EngineInfo.Provider);
+        Assert.False(engine.EngineInfo.IsFallback);
+
+        var coremlCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "coreml.append");
+        Assert.NotNull(coremlCheck);
+        Assert.Equal(CheckResult.Passed, coremlCheck!.Result);
+    }
+
+    [SkippableTheory]
+    [InlineData(HostPlatform.OSX64)]
+    [InlineData(HostPlatform.OSXArm64)]
+    public async Task EngineInfo_MacOS_CoreMLAppendFails_CpuWithProviderAppendFailed(HostPlatform platform)
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: false);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.ProviderAppendFailed, engine.EngineInfo.FallbackReason);
+
+        var coremlCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "coreml.append");
+        Assert.NotNull(coremlCheck);
+        Assert.Equal(CheckResult.Failed, coremlCheck!.Result);
+    }
+
+    [SkippableTheory]
+    [InlineData(HostPlatform.LinuxArm64)]
+    [InlineData(HostPlatform.Unknown)]
+    public async Task EngineInfo_UnsupportedPlatform_CpuWithUnsupportedPlatformFallback(HostPlatform platform)
+    {
+        Skip.IfNot(IsNativeOnnxRuntimeAvailable(), "ONNX Runtime native library is not available.");
+
+        var modelPath = CreateTestModel();
+        var engine = NewSimulatedEngine(GpuOptions(modelPath), platform,
+            kfdPresent: true, allProbesLoadable: true, appendSucceeds: true);
+
+        await engine.LoadAsync();
+
+        Assert.Equal(InferenceProvider.Cpu, engine.EngineInfo.Provider);
+        Assert.True(engine.EngineInfo.IsFallback);
+        Assert.Equal(InferenceFallbackReason.UnsupportedPlatform, engine.EngineInfo.FallbackReason);
+
+        var ridCheck = engine.EngineInfo.Checks.FirstOrDefault(c => c.Name == "rid.platform");
+        Assert.NotNull(ridCheck);
+        Assert.Equal(CheckResult.Failed, ridCheck!.Result);
+    }
+
+    private static InferenceEngineOptions GpuOptions(string modelPath) => new()
+    {
+        UseGpuAcceleration = true,
+        WarmupOnLoad = false,
+        ModelProvider = new LocalModelProvider(modelPath),
+    };
+
+    private SimulatedPlatformEngine NewSimulatedEngine(
+        InferenceEngineOptions options, HostPlatform platform,
+        bool kfdPresent = true, bool allProbesLoadable = true, bool appendSucceeds = true,
+        Func<string, (bool Loaded, string? Error)>? probe = null)
+    {
+        var engine = new SimulatedPlatformEngine(options, platform, kfdPresent, allProbesLoadable, appendSucceeds, probe);
+        _engines.Add(engine);
+        return engine;
     }
 
     // --- Helpers ---
@@ -622,51 +624,6 @@ public sealed class EngineInfoTests : IDisposable
         {
             return false;
         }
-    }
-
-    private static bool IsRocmRuntimeUsableOnHost()
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
-        if (!File.Exists("/dev/kfd")) return false;
-        try
-        {
-            var handle = NativeLibrary.Load("libhsa-runtime64.so",
-                System.Reflection.Assembly.GetExecutingAssembly(),
-                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
-            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
-            return true;
-        }
-        catch { return false; }
-    }
-
-    private static bool IsHipRuntimeUsableOnHost()
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
-        try
-        {
-            var handle = NativeLibrary.Load("libamdhip64.so.7",
-                System.Reflection.Assembly.GetExecutingAssembly(),
-                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
-            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
-            return true;
-        }
-        catch { return false; }
-    }
-
-    private static bool IsMIGraphXRuntimeUsableOnHost()
-    {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return false;
-        if (!IsRocmRuntimeUsableOnHost()) return false;
-        if (!IsHipRuntimeUsableOnHost()) return false;
-        try
-        {
-            var handle = NativeLibrary.Load("libmigraphx_c.so.3",
-                System.Reflection.Assembly.GetExecutingAssembly(),
-                DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
-            if (handle != IntPtr.Zero) NativeLibrary.Free(handle);
-            return true;
-        }
-        catch { return false; }
     }
 
     private string CreateTestModel()
@@ -869,6 +826,73 @@ public sealed class EngineInfoTests : IDisposable
             }
             _sessionCalls++;
             return base.CreateInferenceSession(modelPath, options);
+        }
+
+        protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)
+            => ([], null);
+
+        protected override string PostProcessWithContext(
+            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> output, object? context)
+            => string.Empty;
+    }
+
+    /// <summary>
+    /// Test double that runs the REAL provider-selection and session-construction pipeline against a
+    /// SIMULATED host: the platform, KFD device check, dlopen probes, and EP append are forced while
+    /// everything else (diagnostic checks, CPU/GPU session options, fallback logic, EngineInfo)
+    /// executes for real. This is what lets the provider-branch tests run — not skip — on every OS.
+    /// </summary>
+    private sealed class SimulatedPlatformEngine : BaseInferenceEngine<string, string>
+    {
+        private readonly HostPlatform _platform;
+        private readonly bool _kfdPresent;
+        private readonly bool _allProbesLoadable;
+        private readonly bool _appendSucceeds;
+        private readonly Func<string, (bool Loaded, string? Error)>? _probe;
+
+        public SimulatedPlatformEngine(
+            InferenceEngineOptions options, HostPlatform platform,
+            bool kfdPresent, bool allProbesLoadable, bool appendSucceeds,
+            Func<string, (bool Loaded, string? Error)>? probe)
+            : base(options, NullLogger<SimulatedPlatformEngine>.Instance)
+        {
+            _platform = platform;
+            _kfdPresent = kfdPresent;
+            _allProbesLoadable = allProbesLoadable;
+            _appendSucceeds = appendSucceeds;
+            _probe = probe;
+        }
+
+        protected override string ModelName => "simulated-platform.onnx";
+        protected override string[]? ModelDownloadUrls => null;
+
+        protected override HostPlatform EffectivePlatform => _platform;
+        protected override bool IsKfdPresent() => _kfdPresent;
+
+        protected override bool TryLoadNativeLibrary(string name, out string? error)
+        {
+            if (_probe is not null)
+            {
+                (var loaded, error) = _probe(name);
+                return loaded;
+            }
+            error = null;
+            return _allProbesLoadable;
+        }
+
+        protected override void AppendMIGraphXProvider(SessionOptions options, int deviceId)
+        {
+            if (!_appendSucceeds) throw new EntryPointNotFoundException("simulated: append failure");
+        }
+
+        protected override void AppendDirectMlProvider(SessionOptions options, int deviceId)
+        {
+            if (!_appendSucceeds) throw new EntryPointNotFoundException("simulated: append failure");
+        }
+
+        protected override void AppendCoreMlProvider(SessionOptions options, CoreMLFlags flags)
+        {
+            if (!_appendSucceeds) throw new EntryPointNotFoundException("simulated: append failure");
         }
 
         protected override (List<NamedOnnxValue> InputTensors, object? Context) PreProcessWithContext(string input)

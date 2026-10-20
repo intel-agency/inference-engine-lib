@@ -38,6 +38,17 @@ public class TextEmbeddingEngine : BaseInferenceEngine<string, float[]>
     private Tokenizer? _tokenizer;
 
     /// <summary>
+    /// Test seam (used by <c>InferenceEngine.Tests</c>): injects a pre-built tokenizer without
+    /// network access, mirroring the seam on <see cref="TextGenerationEngine"/>. Null (default) =
+    /// the tokenizer is resolved lazily during <see cref="LoadAsync"/>.
+    /// </summary>
+    internal Tokenizer? TestTokenizer
+    {
+        get => _tokenizer;
+        set => _tokenizer = value;
+    }
+
+    /// <summary>
     /// Creates the engine. The ONNX model and tokenizer are resolved lazily during
     /// <see cref="LoadAsync"/>.
     /// </summary>
