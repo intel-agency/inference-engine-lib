@@ -576,10 +576,13 @@ public sealed class EngineLifecycleErrorPathTests : IDisposable
                 using var options = new SessionOptions();
                 AppendMIGraphXProvider(options, 0);
             }
-            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException or InvalidOperationException)
+            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException
+                or InvalidOperationException or OnnxRuntimeException)
             {
-                // The real EP append failing on hosts without MIGraphX is expected; the point of
-                // the probe is that the cache-directory failure inside the base was survived.
+                // The real EP append failing on hosts without MIGraphX (or whose restored
+                // onnxruntime_providers_migraphx library cannot load its own dependencies) is
+                // expected; the point of the probe is that the cache-directory failure inside
+                // the base was survived.
             }
         }
     }

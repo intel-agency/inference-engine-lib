@@ -343,7 +343,10 @@ public sealed class OutOfProcessIpcFaultTests
     // --- real subprocesses (Linux): spawn / kill / teardown / stderr pump ---------------------
 
     // Worker dies before answering load → EOF surfaces as a load failure; a retry respawns
-    // (exercising the StartWorker cleanup of a previously-started process).
+    // (exercising the StartWorker cleanup of a previously-started process). Depending on how
+    // fast the dying process closes the pipe, the load surfaces either the wrapped protocol
+    // failure (InvalidOperationException) or the raw broken-pipe IOException — both mean the
+    // same thing here: the load failed without hanging.
     [SkippableFact]
     public async Task RealProcess_WorkerDiesAtSpawn_LoadFailsThenRetryRespawns()
     {
@@ -351,14 +354,22 @@ public sealed class OutOfProcessIpcFaultTests
 
         await using var proxy = new RealWorkerProxy(MakeOptions(), "/bin/true", env: new Dictionary<string, string>());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => proxy.LoadAsync());
+        await AssertLoadFails(proxy);
         Assert.Equal(EngineLoadState.Failed, proxy.Status.State);
 
         // Retry: StartWorker must clean up the dead process and spawn a fresh one.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => proxy.LoadAsync());
+        await AssertLoadFails(proxy);
         Assert.Equal(2, proxy.SpawnCount);
 
         await proxy.WaitForExitHandlersAsync(); // let the forensic Exited handler run
+    }
+
+    private static async Task AssertLoadFails(RealWorkerProxy proxy)
+    {
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => proxy.LoadAsync());
+        Assert.True(
+            ex is InvalidOperationException or IOException,
+            $"Expected a load failure (InvalidOperationException or IOException), got {ex.GetType().Name}: {ex.Message}");
     }
 
     // Worker hangs past the startup timeout → read timeout kills the real process.
