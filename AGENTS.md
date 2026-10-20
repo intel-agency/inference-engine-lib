@@ -434,3 +434,39 @@ public class MultiModalAgent
     </instruction>
   </tool_use_instructions>
 </instructions>
+
+---
+
+## Git Hygiene (mandatory for humans and AI agents)
+
+The repository rule is **NO UNSIGNED COMMITS, EVER**. Every commit on every
+branch must carry a verified GPG signature before it merges. Enforcement is
+mechanical: the *Commit Signature Gate* workflow (`.github/workflows/commit-signature-check.yml`)
+fails any PR containing a commit that GitHub reports as unverified.
+`required_signatures` on protected branches only guards direct pushes — the CI
+gate covers commits arriving via merge commits, which the ruleset does not see.
+
+### Operational rules (all contributors, including agents)
+
+1. **Never disable signing.** Do not pass `-c commit.gpgsign=false`. If signing
+   fails, diagnose it; do not work around it. Never disable a safety mechanism
+   without first proving it is broken (test-before-disable).
+2. **Fetch before operating.** Run `git fetch --all --prune` immediately before
+   creating/rebasing branches, opening PRs, merging, or reporting repository
+   state. Never reason from `origin/*` refs that predate the current operation.
+3. **Never pipe mutating commands through filters.** `git push`, `gh pr merge`,
+   `git checkout` and friends run bare (no `| tail`, `| grep` on the mutation
+   itself), and every mutation is **post-verified**:
+   - after `gh pr merge` → `gh pr view N --json state,mergeCommit` (confirm the merge commit exists)
+   - after `git push` → `git ls-remote` SHA matches the local HEAD
+   - after `git checkout` → `git branch --show-current` and `git status`
+4. **Force-push rules:** feature branches may be force-pushed with
+   `--force-with-lease` only. Protected branches (`main`, `development`,
+   `release`) are never force-pushed without explicit owner authorization for
+   the specific operation, a pre-published plan, and post-push verification
+   that branch ancestry stays consistent (`git merge-base --is-ancestor
+   development main`).
+5. **A failed publish burns the version.** Releases are immutable and tag
+   names never free up. Recover from a failed release publish by dispatching a
+   fresh workflow run (next version) — never retry the same version.
+
