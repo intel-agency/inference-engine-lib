@@ -278,6 +278,54 @@ public class ModelRegistryTests : IDisposable
         Assert.Equal(originalContent, newContent);
     }
 
+    // --- W3: remote-fetch failure / fallback corners ---
+
+    [Fact]
+    public void Constructor_WithExplicitNullModels_ShouldUseEmptyRegistry()
+    {
+        var registryPath = Path.Combine(_testDir, "null-models.json");
+        File.WriteAllText(registryPath, "{ \"models\": null }");
+
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Empty(registry.GetRegisteredModels());
+    }
+
+    [SkippableFact]
+    public void Constructor_WithUnreadableFile_ShouldUseEmptyRegistry()
+    {
+        Skip.IfNot(PosixInterop.IsLinux, "Requires POSIX chmod to make the registry file unreadable.");
+        Skip.If(PosixInterop.RunningAsRoot, "chmod does not restrict root.");
+
+        var registryPath = Path.Combine(_testDir, "unreadable.json");
+        File.WriteAllText(registryPath, "{ \"models\": [] }");
+        Assert.True(PosixInterop.TryChmod(registryPath, PosixInterop.None), "chmod must succeed for the test to be meaningful");
+
+        try
+        {
+            // Non-JSON failure (UnauthorizedAccessException from the read) is caught and degraded
+            // to an empty registry rather than thrown from the constructor.
+            var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+            Assert.Empty(registry.GetRegisteredModels());
+        }
+        finally
+        {
+            PosixInterop.TryChmod(registryPath, PosixInterop.OwnerReadWriteExecute);
+        }
+    }
+
+    [Fact]
+    public void CreateDefaultRegistry_WithMissingParentDirectory_ShouldCreateDirectoryAndFile()
+    {
+        var registryPath = Path.Combine(_testDir, "deep", "nested", "default-registry.json");
+        Assert.False(Directory.Exists(Path.GetDirectoryName(registryPath)));
+
+        ModelRegistry.CreateDefaultRegistry(registryPath);
+
+        Assert.True(File.Exists(registryPath));
+        Assert.Contains("yolo11n.onnx", File.ReadAllText(registryPath));
+    }
+
     private string CreateTestRegistry<T>(T[] models)
     {
         var path = Path.Combine(_testDir, $"registry-{Guid.NewGuid()}.json");

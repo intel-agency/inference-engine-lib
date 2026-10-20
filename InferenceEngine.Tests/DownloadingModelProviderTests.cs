@@ -364,6 +364,182 @@ public class DownloadingModelProviderTests : IDisposable
                 NullLogger.Instance, null, maxDownloadBytes: -1));
     }
 
+    // --- W3: constructor validation corners + default cache directory ---
+
+    [Fact]
+    public void Constructor_WithEmptyModelName_ShouldThrowArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new DownloadingModelProvider(string.Empty, new[] { "http://example.com/m" }, _testDir));
+    }
+
+    [Fact]
+    public void Constructor_WithInvalidPathCharsInCacheDirectory_ShouldThrowArgumentException()
+    {
+        // '\0' appears in Path.GetInvalidPathChars() on every supported platform.
+        Assert.Throws<ArgumentException>(() =>
+            new DownloadingModelProvider("model.onnx", new[] { "http://example.com/m" }, "ca\0che"));
+    }
+
+    [Fact]
+    public void Constructor_WithNullCacheDirectory_ShouldFallBackToDefaultCacheDirectory()
+    {
+        // Exercises the LocalApplicationData default; construction only (no download, no writes).
+        var provider = new DownloadingModelProvider(
+            "model.onnx", new[] { "http://example.com/model.onnx" }, cacheDirectory: null);
+        Assert.NotNull(provider);
+    }
+
+    // --- W3: multi-URL fallback with a stubbed failing-then-succeeding source ---
+
+    [Fact]
+    public async Task GetModelPathAsync_WithFirstUrlFailingAndSecondSucceeding_ShouldUseSecondUrl()
+    {
+        var payload = Encoding.UTF8.GetBytes(Payload);
+        var cacheDir = Path.Combine(_testDir, "multi-url");
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsoluteUri.EndsWith("secondary")
+                ? Ok(payload)
+                : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var provider = new DownloadingModelProvider(
+            "multi-url.onnx",
+            new[] { "http://example.com/primary", "http://example.com/secondary" },
+            cacheDir,
+            NullLogger.Instance,
+            httpClient: new HttpClient(handler));
+
+        var result = await provider.GetModelPathAsync();
+
+        Assert.Equal(Path.Combine(cacheDir, "multi-url.onnx"), result);
+        Assert.Equal(Payload, File.ReadAllText(result));
+        AssertNoTempFiles(cacheDir);
+    }
+
+    // --- W3: best-effort temp-file cleanup when the cache directory becomes unwritable ---
+
+    [SkippableFact]
+    public async Task GetModelPathAsync_WhenTempFileCannotBeDeleted_DownloadStillFailsCleanly()
+    {
+        Skip.IfNot(PosixInterop.IsLinux, "Requires POSIX chmod to make the cache directory unwritable.");
+        Skip.If(PosixInterop.RunningAsRoot, "chmod does not restrict root.");
+
+        var payload = Encoding.UTF8.GetBytes(Payload);
+        var cacheDir = Path.Combine(_testDir, "undeletable");
+        Directory.CreateDirectory(cacheDir);
+
+        // The response stream hands over the full payload, then locks the cache directory to
+        // read-only before throwing: the download fails, and the subsequent temp-file delete
+        // inside DeleteFileBestEffort must ALSO fail (and be swallowed) rather than propagate.
+        var handler = new StubHandler(_ => OkResponse(new LockdownStreamContent(cacheDir, payload)));
+        var provider = new DownloadingModelProvider(
+            "undeletable.onnx",
+            new[] { "http://example.com/undeletable.onnx" },
+            cacheDir,
+            NullLogger.Instance,
+            httpClient: new HttpClient(handler));
+
+        try
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetModelPathAsync());
+            Assert.Contains("simulated network failure", ex.Message, StringComparison.Ordinal);
+
+            // The best-effort delete failed (directory is read-only) and was swallowed: the
+            // caller still sees the download failure, not an UnauthorizedAccessException.
+            Assert.False(File.Exists(Path.Combine(cacheDir, "undeletable.onnx")), "final file must not exist");
+        }
+        finally
+        {
+            // Restore writability so the fixture's Directory.Delete cleanup can run.
+            PosixInterop.TryChmod(cacheDir, PosixInterop.OwnerReadWriteExecute);
+        }
+    }
+
+    /// <summary>
+    /// Content whose read stream hands over the payload once, then flips the cache directory to
+    /// read-only and throws: the temp file written next to it becomes undeletable.
+    /// </summary>
+    private sealed class LockdownStreamContent : HttpContent
+    {
+        private readonly string _directoryToLock;
+        private readonly byte[] _payload;
+
+        public LockdownStreamContent(string directoryToLock, byte[] payload)
+        {
+            _directoryToLock = directoryToLock;
+            _payload = payload;
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken)
+            => Task.FromResult<Stream>(new LockdownStream(_directoryToLock, _payload));
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(new LockdownStream(_directoryToLock, _payload));
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            var s = new LockdownStream(_directoryToLock, _payload);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = await s.ReadAsync(buffer)) > 0)
+                await stream.WriteAsync(buffer.AsMemory(0, read));
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _payload.Length;
+            return true;
+        }
+
+        private sealed class LockdownStream : Stream
+        {
+            private readonly string _directoryToLock;
+            private readonly byte[] _payload;
+            private bool _served;
+            private bool _broken;
+
+            public LockdownStream(string directoryToLock, byte[] payload)
+            {
+                _directoryToLock = directoryToLock;
+                _payload = payload;
+            }
+
+            public override bool CanRead => !_broken;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                if (!_served)
+                {
+                    _served = true;
+                    var toCopy = Math.Min(buffer.Length, _payload.Length);
+                    _payload.AsMemory(0, toCopy).CopyTo(buffer);
+                    return toCopy;
+                }
+
+                if (!_broken)
+                {
+                    _broken = true;
+                    // The provider has written the partial temp file by now; lock the directory
+                    // down so the best-effort delete after this failure cannot succeed.
+                    PosixInterop.TryChmod(_directoryToLock, PosixInterop.OwnerReadOnlyDir);
+                    await Task.Yield();
+                    throw new IOException("simulated network failure mid-stream");
+                }
+
+                return 0;
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override void Flush() => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+    }
+
     private static byte[] OneHundredBytes() => new byte[100];
 
     private DownloadingModelProvider CreateProvider(
