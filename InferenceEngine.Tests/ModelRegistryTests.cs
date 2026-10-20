@@ -205,6 +205,67 @@ public class ModelRegistryTests : IDisposable
     }
 
     [Fact]
+    public void GetModelEntry_WithSha256InRegistry_ShouldRoundTrip()
+    {
+        var sha256 = new string('a', 64);
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "hashed.onnx", description = "Hashed", source = "Test", urls = new[] { "http://example.com/hashed.onnx" }, sha256 }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        var entry = registry.GetModelEntry("hashed.onnx");
+
+        Assert.NotNull(entry);
+        Assert.Equal(sha256, entry!.Sha256);
+    }
+
+    [Fact]
+    public void GetModelEntry_WithoutSha256_ShouldReturnNullSha256()
+    {
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "plain.onnx", description = "Plain", source = "Test", urls = new[] { "http://example.com/plain.onnx" } }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Null(registry.GetModelEntry("plain.onnx")!.Sha256);
+    }
+
+    [Fact]
+    public void GetModelEntry_WithUnknownModel_ShouldReturnNull()
+    {
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "known.onnx", description = "Known", source = "Test", urls = new[] { "http://example.com/known.onnx" } }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Null(registry.GetModelEntry("unknown.onnx"));
+    }
+
+    [Fact]
+    public void Sha256_SerializesAsLowercaseCamelCaseJson()
+    {
+        var sha256 = new string('b', 64);
+        var data = new ModelRegistryData
+        {
+            Models = new[] { new ModelRegistryEntry { Name = "m.onnx", Urls = new[] { "http://example.com/m.onnx" }, Sha256 = sha256 } }
+        };
+
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+        Assert.Contains("\"sha256\":", json);
+        var roundTripped = JsonSerializer.Deserialize<ModelRegistryData>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true // same options the ModelRegistry loader uses
+        })!;
+        Assert.NotNull(roundTripped.Models);
+        Assert.Single(roundTripped.Models);
+        Assert.Equal(sha256, roundTripped.Models[0].Sha256);
+    }
+
+    [Fact]
     public void CreateDefaultRegistry_WhenFileExists_ShouldNotOverwrite()
     {
         var registryPath = Path.Combine(_testDir, "existing.json");

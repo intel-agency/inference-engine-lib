@@ -123,10 +123,12 @@ namespace InferenceEngine.Core
             if (_modelProvider is null)
             {
                 var urls = ModelDownloadUrls;
+                string? expectedSha256 = null;
 
                 if (urls is null || urls.Length == 0)
                 {
-                    urls = ModelRegistry.GetModelUrls(ModelName);
+                    var entry = ModelRegistry.GetModelEntry(ModelName);
+                    urls = entry?.Urls;
 
                     if (urls is null || urls.Length == 0)
                     {
@@ -138,6 +140,7 @@ namespace InferenceEngine.Core
                             $"3) Set {nameof(InferenceEngineOptions)}.{nameof(InferenceEngineOptions.ModelProvider)} explicitly.");
                     }
 
+                    expectedSha256 = entry!.Sha256;
                     _logger.LogInformation("Found model '{ModelName}' in registry with {Count} URL(s)", ModelName, urls.Length);
                 }
 
@@ -145,7 +148,9 @@ namespace InferenceEngine.Core
                     modelName: ModelName,
                     downloadUrls: urls,
                     cacheDirectory: ModelCacheDirectory,
-                    logger: _logger);
+                    logger: _logger,
+                    sha256: expectedSha256,
+                    maxDownloadBytes: _options.MaxModelDownloadBytes);
             }
 
             return _modelProvider;
