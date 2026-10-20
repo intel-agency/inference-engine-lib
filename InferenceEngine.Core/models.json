@@ -7,7 +7,8 @@
       "urls": [
         "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx",
         "https://huggingface.co/ultralytics/YOLO11/resolve/main/yolo11n.onnx"
-      ]
+      ],
+      "sha256": "634279b40c07c6391472c51ad45b81ebc48706a9a1fe72dd3396322acd0c053b"
     },
     {
       "name": "yolo11s.onnx",
@@ -42,7 +43,8 @@
       "source": "akanametov/yolo-face",
       "urls": [
         "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov8n-face.onnx"
-      ]
+      ],
+      "sha256": "06b941fd5792be624ad18f2df9ede0a021c4df165dd418204d978c20fd555928"
     },
     {
       "name": "arcface-recognition.onnx",
@@ -50,7 +52,8 @@
       "source": "InsightFace via HuggingFace mirror richarrrddd/w600k_r50_v1",
       "urls": [
         "https://huggingface.co/richarrrddd/w600k_r50_v1/resolve/main/w600k_r50.onnx"
-      ]
+      ],
+      "sha256": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43"
     }
   ]
 }
