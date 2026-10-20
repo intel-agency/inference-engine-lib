@@ -21,21 +21,22 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    outputs:
-      artifact-name: build-output-${{ matrix.os }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        
+
       - name: Build and Test
         uses: ./.github/actions/build-and-test
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           nuget-token: ${{ secrets.GITHUB_TOKEN }}
-          upload-artifacts: 'true'
-          artifact-retention-days: '30'
-          artifact-name: build-output-${{ matrix.os }}
+          # No cross-job build-artifact handoff: the pack job builds for itself.
+          # Large artifacts (Core bin with native libs, per OS) repeatedly hit the
+          # org's Actions storage quota and failed this pipeline's uploads — same
+          # class as the June fix/ci-artifact-quota incident. Test-result uploads
+          # inside the action remain best-effort.
+          upload-artifacts: 'false'
 
   pack:
     name: Pack NuGet
@@ -51,16 +52,17 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-          
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: build-output-ubuntu-latest
-          path: .
+
+      # Build in-job instead of downloading the ubuntu build-output artifact:
+      # the handoff was the pipeline's largest storage liability and failed
+      # outright whenever the org artifact quota was exhausted.
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: dotnet restore
+
+      - name: Build Release
+        run: dotnet build InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --no-restore
 
       - name: Compute Package Version
         id: version
@@ -143,16 +145,36 @@ jobs:
     environment: release
     permissions:
       contents: write
+      id-token: write  # GitHub OIDC — required for nuget.org trusted publishing
 
     steps:
-      # Fail before creating anything public if the secret is missing —
-      # otherwise a bad run would publish a release with no nuget.org package.
-      - name: Verify required secrets
+      # nuget.org trusted publishing (keyless): exchange this job's GitHub OIDC
+      # token for a 1-hour API key, validated against the nuget.org policy
+      # (owner intel-agency / repo inference-engine-lib / workflow
+      # publish-nuget.yml / environment release — policy owner: intel-agent).
+      # Falls back to the classic NUGET_API_KEY secret if the exchange fails so
+      # a policy hiccup can never block a release; remove the fallback once
+      # trusted publishing has shipped a few releases.
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: nuget-login
+        continue-on-error: true
+        with:
+          user: intel-agent
+
+      - name: Resolve push key (OIDC, classic fallback)
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          OIDC_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          CLASSIC_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "::error::NUGET_API_KEY secret is not configured"
+          if [ -n "$OIDC_KEY" ]; then
+            echo "Using nuget.org trusted publishing (OIDC short-lived key)"
+            echo "NUGET_PUSH_KEY=$OIDC_KEY" >> "$GITHUB_ENV"
+          elif [ -n "$CLASSIC_KEY" ]; then
+            echo "::warning::OIDC exchange failed — falling back to classic NUGET_API_KEY secret"
+            echo "NUGET_PUSH_KEY=$CLASSIC_KEY" >> "$GITHUB_ENV"
+          else
+            echo "::error::No push credential: OIDC exchange failed and NUGET_API_KEY secret is empty"
             exit 1
           fi
 
@@ -184,6 +206,16 @@ jobs:
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS.txt
 
+      # Releases in this repo are immutable: re-running this job for the same
+      # version (e.g. after fixing a failed push) cannot replace release assets —
+      # softprops fails with "Cannot delete asset from an immutable release"
+      # (seen on v1.2.10, 2026-10-19). Deleting the release + tag IS allowed, so
+      # drop any stale one for this version and recreate from this run's artifacts.
+      - name: Remove stale release for this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "v$VERSION" --cleanup-tag --yes || true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -197,14 +229,12 @@ jobs:
             nupkg/SHA256SUMS.txt
 
       - name: Publish to NuGet.org
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "$NUGET_PUSH_KEY" \
             --skip-duplicate
           dotnet nuget push "./nupkg/*.snupkg" \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "$NUGET_PUSH_KEY" \
             --skip-duplicate

@@ -79,9 +79,12 @@ jobs:
             -reporttypes:Html
           ls _site/coverage/index.html
 
+      # Best-effort preview: PR docs verdict comes from the build step above —
+      # a quota-blocked preview upload must not fail the PR.
       - name: Upload site preview artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        continue-on-error: true
         with:
           name: docs-site-preview
           path: _site/
