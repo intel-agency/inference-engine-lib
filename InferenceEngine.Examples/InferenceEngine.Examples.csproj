@@ -33,15 +33,15 @@
        SkiaSharp.NativeAssets.* packages, gated on RuntimeIdentifier so cross-RID builds
        don't pull the wrong-platform natives. -->
   <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
   </ItemGroup>
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('linux'))">
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
   </ItemGroup>
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
   </ItemGroup>
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('osx'))">
-    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
   </ItemGroup>
 </Project>
