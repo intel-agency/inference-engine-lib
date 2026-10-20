@@ -205,6 +205,67 @@ public class ModelRegistryTests : IDisposable
     }
 
     [Fact]
+    public void GetModelEntry_WithSha256InRegistry_ShouldRoundTrip()
+    {
+        var sha256 = new string('a', 64);
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "hashed.onnx", description = "Hashed", source = "Test", urls = new[] { "http://example.com/hashed.onnx" }, sha256 }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        var entry = registry.GetModelEntry("hashed.onnx");
+
+        Assert.NotNull(entry);
+        Assert.Equal(sha256, entry!.Sha256);
+    }
+
+    [Fact]
+    public void GetModelEntry_WithoutSha256_ShouldReturnNullSha256()
+    {
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "plain.onnx", description = "Plain", source = "Test", urls = new[] { "http://example.com/plain.onnx" } }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Null(registry.GetModelEntry("plain.onnx")!.Sha256);
+    }
+
+    [Fact]
+    public void GetModelEntry_WithUnknownModel_ShouldReturnNull()
+    {
+        var registryPath = CreateTestRegistry(new[]
+        {
+            new { name = "known.onnx", description = "Known", source = "Test", urls = new[] { "http://example.com/known.onnx" } }
+        });
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Null(registry.GetModelEntry("unknown.onnx"));
+    }
+
+    [Fact]
+    public void Sha256_SerializesAsLowercaseCamelCaseJson()
+    {
+        var sha256 = new string('b', 64);
+        var data = new ModelRegistryData
+        {
+            Models = new[] { new ModelRegistryEntry { Name = "m.onnx", Urls = new[] { "http://example.com/m.onnx" }, Sha256 = sha256 } }
+        };
+
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+        Assert.Contains("\"sha256\":", json);
+        var roundTripped = JsonSerializer.Deserialize<ModelRegistryData>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true // same options the ModelRegistry loader uses
+        })!;
+        Assert.NotNull(roundTripped.Models);
+        Assert.Single(roundTripped.Models);
+        Assert.Equal(sha256, roundTripped.Models[0].Sha256);
+    }
+
+    [Fact]
     public void CreateDefaultRegistry_WhenFileExists_ShouldNotOverwrite()
     {
         var registryPath = Path.Combine(_testDir, "existing.json");
@@ -215,6 +276,54 @@ public class ModelRegistryTests : IDisposable
 
         var newContent = File.ReadAllText(registryPath);
         Assert.Equal(originalContent, newContent);
+    }
+
+    // --- W3: remote-fetch failure / fallback corners ---
+
+    [Fact]
+    public void Constructor_WithExplicitNullModels_ShouldUseEmptyRegistry()
+    {
+        var registryPath = Path.Combine(_testDir, "null-models.json");
+        File.WriteAllText(registryPath, "{ \"models\": null }");
+
+        var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+
+        Assert.Empty(registry.GetRegisteredModels());
+    }
+
+    [SkippableFact]
+    public void Constructor_WithUnreadableFile_ShouldUseEmptyRegistry()
+    {
+        Skip.IfNot(PosixInterop.IsLinux, "Requires POSIX chmod to make the registry file unreadable.");
+        Skip.If(PosixInterop.RunningAsRoot, "chmod does not restrict root.");
+
+        var registryPath = Path.Combine(_testDir, "unreadable.json");
+        File.WriteAllText(registryPath, "{ \"models\": [] }");
+        Assert.True(PosixInterop.TryChmod(registryPath, PosixInterop.None), "chmod must succeed for the test to be meaningful");
+
+        try
+        {
+            // Non-JSON failure (UnauthorizedAccessException from the read) is caught and degraded
+            // to an empty registry rather than thrown from the constructor.
+            var registry = new ModelRegistry(registryPath, NullLogger.Instance);
+            Assert.Empty(registry.GetRegisteredModels());
+        }
+        finally
+        {
+            PosixInterop.TryChmod(registryPath, PosixInterop.OwnerReadWriteExecute);
+        }
+    }
+
+    [Fact]
+    public void CreateDefaultRegistry_WithMissingParentDirectory_ShouldCreateDirectoryAndFile()
+    {
+        var registryPath = Path.Combine(_testDir, "deep", "nested", "default-registry.json");
+        Assert.False(Directory.Exists(Path.GetDirectoryName(registryPath)));
+
+        ModelRegistry.CreateDefaultRegistry(registryPath);
+
+        Assert.True(File.Exists(registryPath));
+        Assert.Contains("yolo11n.onnx", File.ReadAllText(registryPath));
     }
 
     private string CreateTestRegistry<T>(T[] models)

@@ -15,7 +15,7 @@ permissions:
 jobs:
   verify:
     name: OIDC exchange dry-run (no push)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: NuGet login (OIDC → temp API key)
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1

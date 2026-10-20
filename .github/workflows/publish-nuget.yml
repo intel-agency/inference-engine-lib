@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-2025, macos-15]
 
     steps:
       - name: Checkout repository
@@ -40,7 +40,7 @@ jobs:
 
   pack:
     name: Pack NuGet
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-and-test]
     if: success()
     
@@ -97,7 +97,7 @@ jobs:
 
   publish-github-packages:
     name: Publish to GitHub Packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [pack]
     if: success()
     permissions:
@@ -141,11 +141,12 @@ jobs:
     name: Create GitHub Release & Publish to NuGet.org
     needs: [publish-github-packages]
     if: github.ref_name == 'release'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write
       id-token: write  # GitHub OIDC — required for nuget.org trusted publishing
+      attestations: write  # build-provenance attestations for shipped nupkgs
 
     steps:
       # nuget.org trusted publishing (keyless): exchange this job's GitHub OIDC
@@ -206,11 +207,13 @@ jobs:
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS.txt
 
-      # Releases in this repo are immutable: re-running this job for the same
-      # version (e.g. after fixing a failed push) cannot replace release assets —
-      # softprops fails with "Cannot delete asset from an immutable release"
-      # (seen on v1.2.10, 2026-10-19). Deleting the release + tag IS allowed, so
-      # drop any stale one for this version and recreate from this run's artifacts.
+      # NOTE: releases in this repo are immutable — once published, a version's
+      # TAG NAME IS BURNED PERMANENTLY (deleting the release does not free it:
+      # "tag_name was used by an immutable release", hit on v1.2.10). So a failed
+      # publish cannot be retried at the same version at all. This step only
+      # clears a stale DRAFT/unpublished release object (e.g. from a partial
+      # run); the documented recovery for a failed publish is to dispatch a
+      # FRESH workflow run, which packs the next run-number version.
       - name: Remove stale release for this version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -238,3 +241,12 @@ jobs:
             --source https://api.nuget.org/v3/index.json \
             --api-key "$NUGET_PUSH_KEY" \
             --skip-duplicate
+
+      # SLSA-style build provenance for the exact bytes pushed to nuget.org —
+      # verifiable by anyone: gh attestation verify <nupkg> -R intel-agency/inference-engine-lib
+      - name: Attest build provenance (nupkg/snupkg)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            nupkg/*.nupkg
+            nupkg/*.snupkg

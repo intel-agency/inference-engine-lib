@@ -20,29 +20,40 @@ public enum HostPlatform
 /// </summary>
 public static class HostPlatformDetector
 {
+    // Test seam: the OS/architecture probes are injectable so tests can drive every
+    // branch of Current() hermetically on any host (the real RuntimeInformation calls
+    // answer for the host OS only, leaving the other branches permanently uncovered).
+    // Internal and nullable-probe-free: production callers always go through Current(),
+    // whose public surface is unchanged. Tests must restore the defaults afterwards.
+    internal static Func<string, bool> IsOSPlatformProbe { get; set; } =
+        static name => RuntimeInformation.IsOSPlatform(OSPlatform.Create(name));
+    internal static Func<Architecture> ProcessArchitectureProbe { get; set; } =
+        static () => RuntimeInformation.ProcessArchitecture;
+
+    /// <summary>Detects the current host platform. See <see cref="HostPlatform"/>.</summary>
     public static HostPlatform Current()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        if (IsOSPlatformProbe("Linux"))
         {
-            return RuntimeInformation.ProcessArchitecture switch
+            return ProcessArchitectureProbe() switch
             {
                 Architecture.X64 => HostPlatform.LinuxX64,
                 Architecture.Arm64 => HostPlatform.LinuxArm64,
                 _ => HostPlatform.Unknown,
             };
         }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (IsOSPlatformProbe("OSX"))
         {
-            return RuntimeInformation.ProcessArchitecture switch
+            return ProcessArchitectureProbe() switch
             {
                 Architecture.X64 => HostPlatform.OSX64,
                 Architecture.Arm64 => HostPlatform.OSXArm64,
                 _ => HostPlatform.Unknown,
             };
         }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (IsOSPlatformProbe("Windows"))
         {
-            return RuntimeInformation.ProcessArchitecture switch
+            return ProcessArchitectureProbe() switch
             {
                 Architecture.X64 => HostPlatform.WinX64,
                 Architecture.Arm64 => HostPlatform.WinArm64,
