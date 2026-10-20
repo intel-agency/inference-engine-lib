@@ -14,7 +14,7 @@ Source assessment: [`security-assessment-2026-10-19.md`](security-assessment-202
 |---|---|---|---|
 | HIGH-1 release branch unprotected | HIGH | **Partial — branch protection DONE; `prevent_self_review` pending owner decision** | ruleset 12671699 now includes `refs/heads/release` (dead `production` entry removed), verified via API 2026-10-19 ~23:59Z. Self-review gate deferred: enabling it requires a second active approver (`intelagentone`) or single-operator releases wedge. |
 | HIGH-2 mutable release tags | HIGH | **DONE** | New ruleset 25444835 `protected release tags` (`refs/tags/v*`, deletion + non-fast-forward denied), created via API 2026-10-19. Verified active. |
-| MEDIUM-1 model download integrity | MEDIUM | **OPEN — code workstream** | Spec in assessment §MEDIUM-1: path validation, per-entry sha256, atomic temp-file rename, size cap, redirect policy. |
+| MEDIUM-1 model download integrity | MEDIUM | **Code workstream DONE — PR #45** (pending merge) | Path validation, per-entry sha256, atomic temp-file rename, size cap (`MaxModelDownloadBytes`, 2 GiB default), redirect cap (5) landed on `feat/model-download-hardening`; hermetic suite 150 passed / 0 failed. Populating real sha256 values in `models.json` remains a data task for the owner. |
 | MEDIUM-2 merge gate cosmetic | MEDIUM | **OPEN — owner decision** | Requires ≥1 approval + required status checks; adds friction to every PR (incl. agent PRs). |
 | MEDIUM-3 classic NUGET_API_KEY | MEDIUM | **OPEN — sequenced** | Drop fallback + rotate after first clean OIDC publish (PR #42 pending). |
 | MEDIUM-4 unpinned upstream build refs | MEDIUM | **OPEN — downstream repo** | inference-engine-rocm: digest-pin Docker, SHA-pin ORT clone, attest .so provenance. |
