@@ -18,7 +18,7 @@ permissions:
 jobs:
   signature-gate:
     name: Every PR commit must be verified-signed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify every commit in this PR
         env:
