@@ -1,0 +1,44 @@
+name: Commit Signature Gate
+
+# Enforces the repository rule "NO UNSIGNED COMMITS EVER" at merge time.
+# GitHub's required_signatures ruleset only evaluates direct pushes — commits
+# arriving inside a (GitHub-signed) PR merge commit are not individually
+# checked, which is how unsigned commits have slipped through historically
+# (2026-10-19). This gate closes that hole: it fails the PR if ANY commit in it
+# is not verified per GitHub's own commit-verification API (covers author GPG
+# signatures and GitHub server-side signatures alike).
+
+on:
+  pull_request:
+    branches: [main, development, release]
+
+permissions:
+  contents: read
+
+jobs:
+  signature-gate:
+    name: Every PR commit must be verified-signed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every commit in this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for c in $(gh api "repos/intel-agency/inference-engine-lib/pulls/$PR/commits" --paginate --jq '.[].sha'); do
+            read -r verified reason < <(gh api "repos/intel-agency/inference-engine-lib/commits/$c" \
+              --jq '[.commit.verification.verified, .commit.verification.reason] | @tsv')
+            if [ "$verified" != "true" ]; then
+              echo "::error title=Unsigned commit::$c is NOT verified (reason: $reason). This repository requires every commit to carry a verified signature."
+              fail=1
+            else
+              echo "OK  $c  ($reason)"
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error title=Commit Signature Gate::one or more commits failed verification — re-sign (git rebase --exec 'git commit --amend --no-edit -S') and update this PR"
+            exit 1
+          fi
+          echo "Commit Signature Gate: all commits verified."
