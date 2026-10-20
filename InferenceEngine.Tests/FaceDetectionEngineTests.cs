@@ -38,18 +38,18 @@ public class FaceDetectionEngineTests
     }
 
     /// <summary>
-    /// Creates a FaceDetectionEngine with default options.
+    /// Creates a FaceDetectionEngine with default options (as the exposed subclass so
+    /// failure-injection tests can reach the protected preprocessing pipeline).
     /// The engine automatically handles model acquisition via CreateDefaultModelProvider().
     /// </summary>
-    private static FaceDetectionEngine CreateEngine(bool useGpu = false)
+    private static ExposedFaceDetectionEngine CreateEngine(bool useGpu = false)
     {
-        return new FaceDetectionEngine(
+        return new ExposedFaceDetectionEngine(
             new InferenceEngineOptions
             {
                 UseGpuAcceleration = useGpu,
                 WarmupOnLoad = false
-            },
-            NullLogger<FaceDetectionEngine>.Instance);
+            });
     }
 
     [SkippableFact]
@@ -235,5 +235,74 @@ public class FaceDetectionEngineTests
         Assert.NotNull(results);
         Assert.NotEmpty(results);
         Assert.Contains(results, r => r.Label is "person" or "bus" or "car");
+    }
+
+    // --- Failure-injection tests (W4): drive the PreProcess guard branches that the
+    // happy-path pipeline tests never hit — undecodable image bytes, engine not
+    // loaded (no metadata), and the unknown-coordinate-space decode guard. ---
+
+    [Fact]
+    public void PreProcess_WithUndecodableBytes_ThrowsArgumentException()
+    {
+        var engine = CreateEngine();
+
+        // SkiaSharp rejects garbage bytes with ArgumentNullException (codec == null), which
+        // derives from ArgumentException — either way preprocessing must reject the input.
+        Assert.ThrowsAny<ArgumentException>(
+            () => engine.PreProcess([0x00, 0x01, 0x02, 0x03]));
+    }
+
+    [Fact]
+    public void PreProcess_BeforeLoad_ThrowsInvalidOperationException()
+    {
+        // A valid image that decodes fine, but the engine was never loaded so
+        // InputMetadata/PrimaryInputName are null.
+        var engine = CreateEngine();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => engine.PreProcess(CreatePngBytes(width: 4, height: 4)));
+
+        Assert.Contains("Engine is not loaded or model metadata is missing", ex.Message);
+    }
+
+    [Fact]
+    public void DecodeToSourcePixels_WithUnknownSpace_ThrowsInvalidOperationException()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FaceDetectionEngine.DecodeToSourcePixels(
+                FaceDetectionEngine.BoxCoordSpace.Unknown, 1, 2, 3, 4, 1f, 1f, 100, 100));
+
+        Assert.Contains("Unknown coordinate space", ex.Message);
+    }
+
+    [Fact]
+    public void InferBoxCoordSpace_WithBoxesBeyondEverySpace_ReturnsUnknown()
+    {
+        // Coordinates larger than normalized (≤1.15), model-input (≤640·1.15) and source
+        // (≤100·1.15) tolerances: the heuristic must give up and report Unknown.
+        var space = new FaceDetectionEngine(
+            new InferenceEngineOptions { WarmupOnLoad = false },
+            NullLogger<FaceDetectionEngine>.Instance)
+            .InferBoxCoordSpace(maxCx: 5000, maxCy: 5000, maxW: 5000, maxH: 5000,
+                srcW: 100, srcH: 100, modelW: 100, modelH: 100);
+
+        Assert.Equal(FaceDetectionEngine.BoxCoordSpace.Unknown, space);
+    }
+
+    private static byte[] CreatePngBytes(int width, int height)
+    {
+        using var bitmap = new SkiaSharp.SKBitmap(new SkiaSharp.SKImageInfo(width, height, SkiaSharp.SKColorType.Rgba8888));
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        return data.ToArray();
+    }
+
+    /// <summary>Exposes the protected preprocessing pipeline for failure-injection tests.</summary>
+    private sealed class ExposedFaceDetectionEngine : FaceDetectionEngine
+    {
+        public ExposedFaceDetectionEngine(InferenceEngineOptions options)
+            : base(options, NullLogger<FaceDetectionEngine>.Instance) { }
+
+        public List<NamedOnnxValue> PreProcess(byte[] imageBytes) => PreProcessWithContext(imageBytes).InputTensors;
     }
 }
