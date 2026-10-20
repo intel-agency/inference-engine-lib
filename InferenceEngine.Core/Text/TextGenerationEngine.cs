@@ -39,6 +39,18 @@ public class TextGenerationEngine : BaseStreamingInferenceEngine<string, string,
     private Tokenizer? _tokenizer;
 
     /// <summary>
+    /// Test seam (used by <c>InferenceEngine.Tests</c>): injects a pre-built tokenizer without
+    /// network access. Phi-3's <c>tokenizer.model</c> is a binary SentencePiece protobuf that tests
+    /// cannot fabricate, so hermetic streaming tests inject a locally-constructed tokenizer instead.
+    /// Null (default) = the tokenizer is resolved lazily during <see cref="LoadAsync"/>.
+    /// </summary>
+    internal Tokenizer? TestTokenizer
+    {
+        get => _tokenizer;
+        set => _tokenizer = value;
+    }
+
+    /// <summary>
     /// Creates the engine. The ONNX model and tokenizer are resolved lazily during
     /// <see cref="LoadAsync"/>.
     /// </summary>

@@ -44,6 +44,15 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The tiny identity.onnx graph is owned by the integration-test project; link it here (rather
+       than duplicating the binary) so hermetic engine tests can load a real CPU session without
+       downloading a model. -->
+  <ItemGroup>
+    <None Include="../InferenceEngine.Core.IntegrationTests/Resources/identity.onnx"
+          Link="Resources/identity.onnx"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- The upstream Microsoft.ML.OnnxRuntime 1.24.1 and Microsoft.ML.OnnxRuntime.Extensions 0.14.0
        props unconditionally add <None Include="...\runtimes\win-x64\native\onnxruntime.dll"> (and
        ortextensions.dll, onnxruntime_providers_shared.dll) with <CopyToOutputDirectory>PreserveNewest</>.
