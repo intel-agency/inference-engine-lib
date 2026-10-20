@@ -108,10 +108,18 @@ internal static class TokenizerAssets
     }
 
     /// <summary>
-    /// Downloads (or reuses a cached copy of) a single tokenizer asset file under the engine's
-    /// tokenizers cache directory using <see cref="DownloadingModelProvider"/>.
+    /// Test seam (used by <c>InferenceEngine.Tests</c>): overrides the tokenizers cache directory so
+    /// tests can point the asset loader at an isolated temp directory (hermetic failure/corruption
+    /// injection) instead of the shared user-level cache. Null (default) = production behavior.
     /// </summary>
-    private static async Task<string> DownloadAssetAsync(
+    internal static string? TokenizerCacheDirectoryOverride { get; set; }
+
+    /// <summary>
+    /// Downloads (or reuses a cached copy of) a single tokenizer asset file under the engine's
+    /// tokenizers cache directory using <see cref="DownloadingModelProvider"/>. Internal so the
+    /// test project can drive the download-failure wrapping directly.
+    /// </summary>
+    internal static async Task<string> DownloadAssetAsync(
         string fileName,
         string[] urls,
         InferenceEngineOptions options,
@@ -142,8 +150,11 @@ internal static class TokenizerAssets
     }
 
     /// <summary>Tokenizers cache directory, located alongside the default model cache.</summary>
-    private static string GetTokenizersCacheDirectory() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "InferenceEngine",
-        "Tokenizers");
+    private static string GetTokenizersCacheDirectory() =>
+        TokenizerCacheDirectoryOverride is { } overrideDir
+            ? overrideDir
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "InferenceEngine",
+                "Tokenizers");
 }
