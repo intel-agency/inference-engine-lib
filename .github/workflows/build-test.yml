@@ -101,7 +101,7 @@ jobs:
       - name: Run tests with coverage
         run: >
           dotnet test --configuration Release --no-build --verbosity normal
-          --filter "FullyQualifiedName!~FaceDetectionEngineTests&FullyQualifiedName!~NativeLibraryValidationTests"
+          --filter "FullyQualifiedName!~NativeLibraryValidationTests"
           --collect:"XPlat Code Coverage"
         shell: bash
 
