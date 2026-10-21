@@ -13,6 +13,11 @@ env:
   DOTNET_VERSION: '10.0.x'
   REGISTRY: 'https://nuget.pkg.github.com/intel-agency/index.json'
 
+# Least privilege default for all jobs; jobs needing more (publish-github-packages,
+# create-release) override this with their own job-level permissions block.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }})

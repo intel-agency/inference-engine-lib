@@ -23,6 +23,9 @@ on:
 env:
   DOTNET_VERSION: '10.0.x'
 
+permissions:
+  contents: read
+
 jobs:
   rocm-gpu-test:
     name: ROCm GPU Inference Test (AMD)
