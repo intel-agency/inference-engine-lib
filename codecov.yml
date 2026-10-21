@@ -1,0 +1,25 @@
+# Codecov configuration — mirrors the repo ruleset's code_coverage rule
+# (minimum 95% project coverage, max 3pp drop). Patch coverage is
+# informational so normal-sized PRs are not gated on touched-lines ratio.
+coverage:
+  status:
+    project:
+      default:
+        target: 95%
+        threshold: 3%
+    patch:
+      default:
+        informational: true
+
+codecov:
+  require_ci_to_pass: false
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "docs/**"
+  - "plan_docs/**"
+  - "archive/**"
