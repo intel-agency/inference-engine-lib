@@ -2,8 +2,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using InferenceEngine.Core;
 using InferenceEngine.Core.Diagnostics;
+using InferenceEngine.Core.Text;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using Microsoft.ML.Tokenizers;
@@ -126,4 +128,50 @@ internal static class TextEngineTestHelpers
         ModelPath = "fake.onnx",
         ModelSource = ModelSource.ExplicitPath,
     };
+
+    // TokenizerAssets.TokenizerCacheDirectoryOverride is a static (process-global) seam, and xUnit
+    // runs test classes in parallel: an unguarded set/restore in one class can race another class's
+    // loader call mid-flight (observed on the macOS CI runner, where a concurrent test's
+    // restore-to-null redirected a corrupt-vocab load to the shared default cache that a live
+    // network test had already populated with a good vocab). Every test that touches the seam must
+    // run its full set -> use -> restore span under this gate.
+    private static readonly SemaphoreSlim CacheOverrideLock = new(1, 1);
+
+    /// <summary>
+    /// Runs <paramref name="action"/> with the tokenizer cache override set to
+    /// <paramref name="dir"/>, serialized against every other seam user and restoring the previous
+    /// value (not null) on exit, so concurrent tests never observe a half-set seam.
+    /// </summary>
+    public static async Task WithCacheOverrideAsync(string dir, Func<Task> action)
+    {
+        await CacheOverrideLock.WaitAsync().ConfigureAwait(false);
+        string? previous = TokenizerAssets.TokenizerCacheDirectoryOverride;
+        TokenizerAssets.TokenizerCacheDirectoryOverride = dir;
+        try
+        {
+            await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            TokenizerAssets.TokenizerCacheDirectoryOverride = previous;
+            CacheOverrideLock.Release();
+        }
+    }
+
+    /// <summary>Result-returning variant of <see cref="WithCacheOverrideAsync(string, Func{Task})"/>.</summary>
+    public static async Task<T> WithCacheOverrideAsync<T>(string dir, Func<Task<T>> action)
+    {
+        await CacheOverrideLock.WaitAsync().ConfigureAwait(false);
+        string? previous = TokenizerAssets.TokenizerCacheDirectoryOverride;
+        TokenizerAssets.TokenizerCacheDirectoryOverride = dir;
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            TokenizerAssets.TokenizerCacheDirectoryOverride = previous;
+            CacheOverrideLock.Release();
+        }
+    }
 }

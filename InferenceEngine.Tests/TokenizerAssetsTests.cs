@@ -23,15 +23,17 @@ public sealed class TokenizerAssetsTests : IDisposable
     {
         _testDir = Path.Combine(Path.GetTempPath(), $"tokenizer-assets-tests-{Guid.NewGuid()}");
         Directory.CreateDirectory(_testDir);
-        TokenizerAssets.TokenizerCacheDirectoryOverride = _testDir;
     }
 
     public void Dispose()
     {
-        TokenizerAssets.TokenizerCacheDirectoryOverride = null;
         try { Directory.Delete(_testDir, recursive: true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
+
+    // NOTE: the cache override is NOT set in the constructor. It is a process-global static and
+    // xUnit runs classes in parallel; every loader call below installs it per-test under the shared
+    // gate (WithCacheOverrideAsync) instead, so no other test class can observe or clobber it.
 
     [Fact]
     public async Task DownloadAssetAsync_AllSourcesFail_ThrowsWrappedInvalidOperationException()
@@ -40,13 +42,14 @@ public sealed class TokenizerAssetsTests : IDisposable
         // the HTTP layer, and EnsureSuccessStatusCode fails. Deterministic, no external network.
         await using var server = new LoopbackServer();
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            TokenizerAssets.DownloadAssetAsync(
-                "some-asset.bin",
-                new[] { server.Url("asset") },
-                new InferenceEngineOptions(),
-                NullLogger.Instance,
-                CancellationToken.None));
+        var ex = await TextEngineTestHelpers.WithCacheOverrideAsync(_testDir, () =>
+            Assert.ThrowsAsync<InvalidOperationException>(() =>
+                TokenizerAssets.DownloadAssetAsync(
+                    "some-asset.bin",
+                    new[] { server.Url("asset") },
+                    new InferenceEngineOptions(),
+                    NullLogger.Instance,
+                    CancellationToken.None)));
 
         Assert.Contains("some-asset.bin", ex.Message);
         Assert.Contains("could not be loaded or downloaded", ex.Message);
@@ -57,13 +60,14 @@ public sealed class TokenizerAssetsTests : IDisposable
     public async Task DownloadAssetAsync_ConnectionRefused_ThrowsWrappedInvalidOperationException()
     {
         // No listener on this loopback port: the TCP connect fails outright.
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            TokenizerAssets.DownloadAssetAsync(
-                "missing-asset.bin",
-                new[] { "http://127.0.0.1:9/never-listened.bin" },
-                new InferenceEngineOptions(),
-                NullLogger.Instance,
-                CancellationToken.None));
+        var ex = await TextEngineTestHelpers.WithCacheOverrideAsync(_testDir, () =>
+            Assert.ThrowsAsync<InvalidOperationException>(() =>
+                TokenizerAssets.DownloadAssetAsync(
+                    "missing-asset.bin",
+                    new[] { "http://127.0.0.1:9/never-listened.bin" },
+                    new InferenceEngineOptions(),
+                    NullLogger.Instance,
+                    CancellationToken.None)));
 
         Assert.Contains("missing-asset.bin", ex.Message);
     }
@@ -71,10 +75,11 @@ public sealed class TokenizerAssetsTests : IDisposable
     [Fact]
     public async Task DownloadAssetAsync_NullOptions_ThrowsArgumentNullException()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            TokenizerAssets.DownloadAssetAsync(
-                "f.txt", new[] { "http://127.0.0.1:9/f.txt" },
-                null!, NullLogger.Instance, CancellationToken.None));
+        await TextEngineTestHelpers.WithCacheOverrideAsync(_testDir, () =>
+            Assert.ThrowsAsync<ArgumentNullException>(() =>
+                TokenizerAssets.DownloadAssetAsync(
+                    "f.txt", new[] { "http://127.0.0.1:9/f.txt" },
+                    null!, NullLogger.Instance, CancellationToken.None)));
     }
 
     [Fact]
@@ -83,12 +88,13 @@ public sealed class TokenizerAssetsTests : IDisposable
         string cached = Path.Combine(_testDir, "cached.txt");
         File.WriteAllText(cached, "payload");
 
-        string result = await TokenizerAssets.DownloadAssetAsync(
-            "cached.txt",
-            new[] { "http://127.0.0.1:9/never-reached.txt" },
-            new InferenceEngineOptions(),
-            NullLogger.Instance,
-            CancellationToken.None);
+        string result = await TextEngineTestHelpers.WithCacheOverrideAsync(_testDir, () =>
+            TokenizerAssets.DownloadAssetAsync(
+                "cached.txt",
+                new[] { "http://127.0.0.1:9/never-reached.txt" },
+                new InferenceEngineOptions(),
+                NullLogger.Instance,
+                CancellationToken.None));
 
         Assert.Equal(cached, result);
         Assert.Equal("payload", File.ReadAllText(result));
@@ -99,11 +105,20 @@ public sealed class TokenizerAssetsTests : IDisposable
     {
         // A vocab.txt that exists but is not a valid BERT vocab: the download layer succeeds (cache
         // hit) and the corruption surfaces when BertTokenizer.Create parses the stream.
-        File.WriteAllText(Path.Combine(_testDir, "vocab.txt"), "\0\0not a vocab\0\0");
+        string corruptVocab = Path.Combine(_testDir, "vocab.txt");
+        File.WriteAllText(corruptVocab, "\0\0not a vocab\0\0");
 
-        await Assert.ThrowsAnyAsync<Exception>(() =>
-            TokenizerAssets.LoadMiniLmTokenizerAsync(
-                new InferenceEngineOptions(), NullLogger.Instance, CancellationToken.None));
+        await TextEngineTestHelpers.WithCacheOverrideAsync(_testDir, async () =>
+        {
+            // Prove the loader will resolve exactly this corrupt file: if the seam were ineffective
+            // (the macOS CI failure mode) the loader would read the shared default cache instead.
+            Assert.True(File.Exists(corruptVocab), $"corrupt vocab missing at {corruptVocab}");
+            Assert.Equal(_testDir, TokenizerAssets.TokenizerCacheDirectoryOverride);
+
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                TokenizerAssets.LoadMiniLmTokenizerAsync(
+                    new InferenceEngineOptions(), NullLogger.Instance, CancellationToken.None));
+        });
     }
 
     // --- loopback server helper ---
