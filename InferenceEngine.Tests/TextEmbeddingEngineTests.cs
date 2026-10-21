@@ -32,7 +32,6 @@ public sealed class TextEmbeddingEngineTests : IDisposable
     public void Dispose()
     {
         foreach (var d in _disposables) d.Dispose();
-        TokenizerAssets.TokenizerCacheDirectoryOverride = null;
         try { Directory.Delete(_testDir, recursive: true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
@@ -313,7 +312,6 @@ public sealed class TextEmbeddingEngineTests : IDisposable
         string dir = Path.Combine(_testDir, "corrupt-vocab-cache");
         Directory.CreateDirectory(dir);
         await File.WriteAllTextAsync(Path.Combine(dir, "vocab.txt"), "\0corrupt\0vocab\0");
-        TokenizerAssets.TokenizerCacheDirectoryOverride = dir;
 
         var options = new InferenceEngineOptions
         {
@@ -325,7 +323,9 @@ public sealed class TextEmbeddingEngineTests : IDisposable
 
         // Must not throw: the tokenizer failure is a warning; the session loads from ModelPath and
         // warmup failure is non-critical (identity.onnx's float input rejects int dummy tensors).
-        await engine.LoadAsync();
+        // The load runs under the shared cache-override gate (the seam is process-global and test
+        // classes run in parallel).
+        await TextEngineTestHelpers.WithCacheOverrideAsync(dir, () => engine.LoadAsync());
     }
 
     [SkippableFact]
@@ -336,7 +336,6 @@ public sealed class TextEmbeddingEngineTests : IDisposable
         string dir = Path.Combine(_testDir, "good-vocab-cache");
         Directory.CreateDirectory(dir);
         TextEngineTestHelpers.WriteMiniVocab(dir);
-        TokenizerAssets.TokenizerCacheDirectoryOverride = dir;
 
         var options = new InferenceEngineOptions
         {
@@ -345,7 +344,7 @@ public sealed class TextEmbeddingEngineTests : IDisposable
             WarmupOnLoad = false,
         };
         using var engine = new TextEmbeddingEngine(options);
-        await engine.LoadAsync();
+        await TextEngineTestHelpers.WithCacheOverrideAsync(dir, () => engine.LoadAsync());
     }
 
     private static string IdentityModelPath =>

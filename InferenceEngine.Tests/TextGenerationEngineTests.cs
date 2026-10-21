@@ -379,24 +379,17 @@ public sealed class TextGenerationEngineTests : IDisposable
         string dir = Path.Combine(_testDir, "corrupt-cache");
         Directory.CreateDirectory(dir);
         await File.WriteAllTextAsync(Path.Combine(dir, "tokenizer.model"), "not-a-sentencepiece-proto");
-        TokenizerAssets.TokenizerCacheDirectoryOverride = dir;
-        try
+        var options = new InferenceEngineOptions
         {
-            var options = new InferenceEngineOptions
-            {
-                ModelPath = IdentityModelPath,
-                UseGpuAcceleration = false,
-                WarmupOnLoad = false,
-            };
-            using var engine = new TextGenerationEngine(options);
+            ModelPath = IdentityModelPath,
+            UseGpuAcceleration = false,
+            WarmupOnLoad = false,
+        };
+        using var engine = new TextGenerationEngine(options);
 
-            // Must not throw despite the tokenizer failure.
-            await engine.LoadAsync();
-        }
-        finally
-        {
-            TokenizerAssets.TokenizerCacheDirectoryOverride = null;
-        }
+        // Must not throw despite the tokenizer failure; the load runs under the shared
+        // cache-override gate (the seam is process-global and test classes run in parallel).
+        await TextEngineTestHelpers.WithCacheOverrideAsync(dir, () => engine.LoadAsync());
     }
 
     private static string IdentityModelPath =>
