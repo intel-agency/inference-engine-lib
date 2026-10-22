@@ -10,6 +10,11 @@ on:
 env:
   DOTNET_VERSION: '10.0.x'
 
+# Least privilege default for all jobs; jobs needing more (coverage-comment)
+# override this with their own job-level permissions block.
+permissions:
+  contents: read
+
 jobs:
   # ── Stage 1: Compile ─────────────────────────────────────────────────────
   # fail-fast: true — if any platform fails to compile, abort immediately.
