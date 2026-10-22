@@ -13,6 +13,9 @@ on:
     - cron: '28 23 * * 1'
   push:
     branches: [ "main" ]
+  # Manual runs so the score can be refreshed on demand after landing fixes
+  # instead of waiting for the weekly cron.
+  workflow_dispatch:
 
 # Declare default permissions as read only.
 permissions: read-all
