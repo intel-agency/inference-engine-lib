@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Central Package Management: all NuGet package versions live here.
+  Projects reference packages WITHOUT Version attributes; per-project
+  exceptions use VersionOverride (InferenceEngine.Core.IntegrationTests
+  deliberately pins the older xUnit v2 test stack).
+
+  This central file is what the Scorecard Pinned-Dependencies check credits
+  for pinning the dotnet/NuGet dependency graph.
+-->
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Runtime couplet: the ORT version is coupled to
+         InferenceEngine.ROCm.Runtime.linux-x64 — majors must be upgraded as a
+         coordinated release (see the matching ignore rules in dependabot.yml). -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <PackageVersion Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.44" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
+    <!-- Test stack -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.61" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <!-- Examples -->
+    <PackageVersion Include="SkiaSharp" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
+  </ItemGroup>
+</Project>
