@@ -205,6 +205,22 @@ jobs:
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS.txt
 
+      # Sigstore keyless signatures for the exact release bytes. Satisfies the
+      # Scorecard Signed-Releases check (it counts signature files among the
+      # release assets — attestations alone don't register) and gives consumers
+      # offline-verifiable signatures alongside the existing build provenance.
+      # cosign is preinstalled on GitHub-hosted ubuntu runners; keyless signing
+      # uses this job's OIDC token (id-token: write, granted above).
+      - name: Sign release artifacts (sigstore keyless)
+        run: |
+          cd nupkg
+          cosign version
+          for f in *.nupkg *.snupkg SHA256SUMS.txt; do
+            cosign sign-blob --yes --output-signature "$f.sig" --bundle "$f.bundle" "$f"
+          done
+          echo "=== signatures ==="
+          ls -la *.sig *.bundle
+
       # NOTE: releases in this repo are immutable — once published, a version's
       # TAG NAME IS BURNED PERMANENTLY (deleting the release does not free it:
       # "tag_name was used by an immutable release", hit on v1.2.10). So a failed
@@ -228,6 +244,24 @@ jobs:
             nupkg/*.nupkg
             nupkg/*.snupkg
             nupkg/SHA256SUMS.txt
+            nupkg/*.sig
+            nupkg/*.bundle
+          body: |
+            ### Verifying artifacts
+
+            Checksums: `sha256sum -c SHA256SUMS.txt`
+
+            Signatures (sigstore keyless): every artifact ships a `<name>.sig` + `<name>.bundle` pair. Verify with:
+
+            ```
+            cosign verify-blob \
+              --bundle <artifact>.bundle \
+              --certificate-identity-regexp "https://github\.com/intel-agency/inference-engine-lib/" \
+              --certificate-oidc-issuer "https://token\.actions\.githubusercontent\.com" \
+              <artifact>
+            ```
+
+            Build provenance (SLSA): `gh attestation verify <artifact> -R intel-agency/inference-engine-lib`
 
       - name: Publish to NuGet.org
         run: |
