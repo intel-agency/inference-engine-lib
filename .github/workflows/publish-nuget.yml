@@ -158,31 +158,24 @@ jobs:
       # token for a 1-hour API key, validated against the nuget.org policy
       # (owner intel-agency / repo inference-engine-lib / workflow
       # publish-nuget.yml / environment release — policy owner: intel-agent).
-      # Falls back to the classic NUGET_API_KEY secret if the exchange fails so
-      # a policy hiccup can never block a release; remove the fallback once
-      # trusted publishing has shipped a few releases.
+      # OIDC-only as of 2026-10-21: two consecutive clean keyless releases
+      # (1.2.17, 1.2.25) proven; the classic NUGET_API_KEY fallback was removed
+      # per MEDIUM-3 and the nuget.org key + repo secret can be retired.
       - name: NuGet login (OIDC → temp API key)
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         id: nuget-login
-        continue-on-error: true
         with:
           user: intel-agent
 
-      - name: Resolve push key (OIDC, classic fallback)
+      - name: Verify OIDC key obtained
         env:
           OIDC_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
-          CLASSIC_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          if [ -n "$OIDC_KEY" ]; then
-            echo "Using nuget.org trusted publishing (OIDC short-lived key)"
-            echo "NUGET_PUSH_KEY=$OIDC_KEY" >> "$GITHUB_ENV"
-          elif [ -n "$CLASSIC_KEY" ]; then
-            echo "::warning::OIDC exchange failed — falling back to classic NUGET_API_KEY secret"
-            echo "NUGET_PUSH_KEY=$CLASSIC_KEY" >> "$GITHUB_ENV"
-          else
-            echo "::error::No push credential: OIDC exchange failed and NUGET_API_KEY secret is empty"
+          if [ -z "$OIDC_KEY" ]; then
+            echo "::error::OIDC exchange returned no key — check the nuget.org trusted publishing policy"
             exit 1
           fi
+          echo "NUGET_PUSH_KEY=$OIDC_KEY" >> "$GITHUB_ENV"
 
       - name: Setup .NET ${{ env.DOTNET_VERSION }}
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
