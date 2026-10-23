@@ -16,17 +16,17 @@ Source assessment: [`security-assessment-2026-10-19.md`](security-assessment-202
 | HIGH-2 mutable release tags | HIGH | **DONE** | New ruleset 25444835 `protected release tags` (`refs/tags/v*`, deletion + non-fast-forward denied), created via API 2026-10-19. Verified active. |
 | MEDIUM-1 model download integrity | MEDIUM | **Code workstream DONE — PR #45** (pending merge) | Path validation, per-entry sha256, atomic temp-file rename, size cap (`MaxModelDownloadBytes`, 2 GiB default), redirect cap (5) landed on `feat/model-download-hardening`; hermetic suite 150 passed / 0 failed. Populating real sha256 values in `models.json` remains a data task for the owner. |
 | MEDIUM-2 merge gate cosmetic | MEDIUM | **OPEN — owner decision** | Requires ≥1 approval + required status checks; adds friction to every PR (incl. agent PRs). |
-| MEDIUM-3 classic NUGET_API_KEY | MEDIUM | **OPEN — sequenced** | Drop fallback + rotate after first clean OIDC publish (PR #42 pending). |
+| MEDIUM-3 classic NUGET_API_KEY | MEDIUM | **Code DONE — OIDC-only (#68)** | Classic-key fallback removed; publish authenticates keylessly. Owner residue: rotate/delete the `NUGET_API_KEY` secret (OW1 in the cross-repo plan). |
 | MEDIUM-4 unpinned upstream build refs | MEDIUM | **OPEN — downstream repo** | inference-engine-rocm: digest-pin Docker, SHA-pin ORT clone, attest .so provenance. |
-| L1 ref_name in run: blocks | LOW | **OPEN** | Fix via env: indirection in both publish workflows. |
-| L2 clear-text token in workspace config | LOW | **OPEN** | Minor; ephemeral runner bounds exposure. |
+| L1 ref_name in run: blocks | LOW | **RESOLVED — env-mapped (this change)** | `publish-nuget.yml` version computation interpolated `${{ vars.VERSION_PREFIX }}` / `${{ github.ref_name }}` / `${{ github.run_number }}` into `run:` blocks; verified 2026-10-22 and fixed via `env:` indirection in the same commit as this log update. Remaining `ref_name`/`vars` uses are `if:` conditions and `env:` mappings — expression contexts, not shell. |
+| L2 clear-text token in workspace config | LOW | **RESOLVED — out of tree** | The `.code-workspace` local config was gitignored in Phase 0 §0.1; verified 2026-10-22 it is untracked and never reaches runners. |
 | L3 trusted-publish-verify scope | LOW | **RESOLVED (analysis)** | Policy binds `publish-nuget.yml` + env `release` only → the verify workflow's exchange fails by design (negative test). Reframe its comment as such; it cannot mint keys outside the gate. |
 | L4 unverified release signatures | LOW | **DISPROVEN** | GitHub API: `verification.reason: "valid"` on the merge commits; key `B5690EEEBB952194` is GitHub's server-side signer (committer `noreply@github.com`). Local `E` status is a local-keyring artifact only. |
 | I1 prefix reservation | INFO | **Draft ready — owner sends** | Email to `account@nuget.org` drafted (see thread); both packages live on nuget.org as evidence. |
 | I2 unconditional ROCm dep | INFO | **OPEN — backlog** | RID-scoped dependency groups; non-trivial nuspec surgery. |
 | I4 SECURITY.md gaps | INFO | **OPEN** | Add response-time commitment; mention ROCm package. |
 | I5 lookalike accounts | INFO | **Owner-aware** | `intelagentone` vs `intelagent1ne`. |
-| I7 archive/*.seda | INFO | **OPEN — owner decision** | Executable packer scripts in public repo; candidate for removal. |
+| I7 archive/*.seda | INFO | **RESOLVED (#52)** | Executable packer archives removed from the public repo. |
 
 ## Decision record
 
