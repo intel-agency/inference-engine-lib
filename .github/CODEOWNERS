@@ -1,0 +1,4 @@
+# CODEOWNERS — inference-engine-lib
+# Enables the "Require review from Code Owners" branch-protection toggle
+# (OpenSSF scorecard Branch-Protection check).
+* @nam20485
