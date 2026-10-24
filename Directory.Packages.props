@@ -20,26 +20,29 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Runtime couplet: the ORT version is coupled to
-         InferenceEngine.ROCm.Runtime.linux-x64 — majors must be upgraded as a
-         coordinated release (see the matching ignore rules in dependabot.yml). -->
+    <!-- Runtime couplet: the managed ORT version is coupled to the
+         InferenceEngine.ROCm.Runtime.linux-x64 native package and to
+         OnnxRuntime.DirectML. Neither native package is published past 1.24.x
+         (DirectML tops out at 1.24.4, the ROCm runtime at 1.24.1.62), so ORT
+         can only move as a coordinated release — never on a dependabot bump.
+         Both semver-minor and semver-major are ignored in dependabot.yml. -->
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
     <PackageVersion Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.44" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.1" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.402" />
     <!-- Test stack -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
-    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.61" />
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- Examples -->
-    <PackageVersion Include="SkiaSharp" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
+    <PackageVersion Include="SkiaSharp" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
   </ItemGroup>
 </Project>
