@@ -1,0 +1,10 @@
+# Local commit-time secret blocker (pairs with the "Secret scan" CI workflow —
+# CI enforces the same scan on every PR; this catches secrets before they leave
+# the machine). Install once per clone:
+#   pipx install pre-commit && pre-commit install
+# Bypassing with --no-verify only moves the failure to CI, where it blocks the PR.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
