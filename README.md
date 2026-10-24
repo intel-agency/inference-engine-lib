@@ -7,7 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![API docs](https://img.shields.io/badge/API_docs-DocFX-blue)](https://intel-agency.github.io/inference-engine-lib/)
-[![Coverage](https://img.shields.io/badge/coverage-report-brightgreen)](https://intel-agency.github.io/inference-engine-lib/coverage/)
+[![Coverage](https://codecov.io/gh/intel-agency/inference-engine-lib/branch/main/graph/badge.svg)](https://codecov.io/gh/intel-agency/inference-engine-lib) [![coverage report](https://img.shields.io/badge/coverage-html-blue)](https://intel-agency.github.io/inference-engine-lib/coverage/)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/intel-agency/inference-engine-lib/badge)](https://securityscorecards.dev/viewer/?uri=github.com/intel-agency/inference-engine-lib)
 
 ## The Problem
 

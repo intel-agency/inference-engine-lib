@@ -1,9 +1,12 @@
 version: 2
 updates:
   # .NET dependencies — weekly; minors/patches grouped into one PR.
-  # Microsoft.ML.OnnxRuntime majors are IGNORED: the ORT version is coupled to
-  # the InferenceEngine.ROCm.Runtime.linux-x64 native couplet (downstream
-  # inference-engine-rocm) and must be upgraded as a coordinated release.
+  # Microsoft.ML.OnnxRuntime minors AND majors are IGNORED: the ORT version is
+  # coupled to the InferenceEngine.ROCm.Runtime.linux-x64 native couplet
+  # (downstream inference-engine-rocm) and to OnnxRuntime.DirectML, neither of
+  # which is published past 1.24.x. It must be upgraded as a coordinated
+  # release. Ignoring majors alone let PR #60 propose ORT 1.31.0 against a
+  # 1.24.1 native runtime, which would have been an ABI mismatch.
   - package-ecosystem: nuget
     directory: "/"
     schedule:
@@ -15,9 +18,9 @@ updates:
           - "patch"
     ignore:
       - dependency-name: "Microsoft.ML.OnnxRuntime"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "Microsoft.ML.OnnxRuntime.DirectML"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "InferenceEngine.ROCm.Runtime.linux-x64"
         # pinned to the public ORT couplet — bump only via coordinated release
         update-types: ["version-update:semver-major", "version-update:semver-minor"]

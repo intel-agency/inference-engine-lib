@@ -10,6 +10,11 @@ on:
 env:
   DOTNET_VERSION: '10.0.x'
 
+# Least privilege default for all jobs; jobs needing more (coverage-comment)
+# override this with their own job-level permissions block.
+permissions:
+  contents: read
+
 jobs:
   # ── Stage 1: Compile ─────────────────────────────────────────────────────
   # fail-fast: true — if any platform fails to compile, abort immediately.
@@ -31,18 +36,10 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Cache NuGet packages
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
         shell: bash
 
       - name: Build Release
@@ -80,18 +77,10 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Cache NuGet packages
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
         shell: bash
 
       - name: Build Release
@@ -122,7 +111,7 @@ jobs:
       # ephemeral CI byproducts — the durable coverage home is the Pages site —
       # so a quota-blocked upload must not fail test gating. Retention kept low.
       - name: Upload test results and coverage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         continue-on-error: true
         with:
@@ -153,7 +142,7 @@ jobs:
 
     steps:
       - name: Find existing coverage comment
-        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: find-comment
         with:
           issue-number: ${{ github.event.pull_request.number }}
@@ -181,10 +170,50 @@ jobs:
       # so the comment step cannot post there — don't let that fail the job.
       # Same-repo branch PRs (the CONTRIBUTING.md flow) always have the scope.
       - name: Create or update coverage comment
-        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         continue-on-error: true
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body-path: comment-body.md
           edit-mode: replace
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
+
+  # Uploads cobertura reports to Codecov (public badge + GitHub coverage-API
+  # data, which is what the repo ruleset's code_coverage rule consumes).
+  # Transitional: until the CODECOV_TOKEN secret is configured this job warns
+  # and skips (visible, non-blocking) — first run after the token lands starts
+  # uploading and the badge goes live.
+  codecov:
+    name: Codecov upload
+    runs-on: ubuntu-24.04
+    needs: [test]
+    continue-on-error: true
+
+    permissions:
+      contents: read
+
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    steps:
+      - name: Download coverage reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: test-results-*
+          path: coverage
+          if-no-files-found: ignore
+          merge-multiple: true
+
+      - name: Upload to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          files: coverage/**/coverage.cobertura.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Skip notice (token not configured)
+        if: ${{ env.CODECOV_TOKEN == '' }}
+        run: echo "::warning::CODECOV_TOKEN secret not configured — Codecov upload skipped. Enable the repo at codecov.io and add the upload token as the CODECOV_TOKEN repo secret."
+
+

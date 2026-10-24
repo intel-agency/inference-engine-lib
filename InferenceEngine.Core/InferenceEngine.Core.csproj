@@ -76,19 +76,19 @@
   </ItemGroup>
 
   <ItemGroup><!-- Base Runtime (CPU) -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" GeneratePathProperty="true" /><!-- Logging Abstraction -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" /><!-- Tensors support -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" GeneratePathProperty="true" /><!-- Logging Abstraction -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" /><!-- Tensors support -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Extensions" />
     <!-- Tokenizer support for text embedding/generation engines -->
-    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.1" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
     <!-- Expose internal text math helpers to the test project for hermetic verification. -->
     <InternalsVisibleTo Include="InferenceEngine.Tests" />
     <!-- SourceLink: enables source stepping from the NuGet.org symbol server -->
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.402" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
   </ItemGroup><!-- Conditional References for Hardware Acceleration -->
   <!-- DirectML EP is Windows-RID only — gated on RuntimeIdentifier so cross-RID builds never resolve DirectML assets. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))">
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
   </ItemGroup>
   <!-- MIGraphX EP native libs — included unconditionally on Linux x64.
        The MIGraphX-enabled libonnxruntime.so from the InferenceEngine.ROCm.Runtime.linux-x64
@@ -102,7 +102,7 @@
        The MIGraphX EP replaced the deprecated ROCm EP in ORT v1.24.1. The native package
        version now matches the base Microsoft.ML.OnnxRuntime managed bindings (both 1.24.1). -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND '$(RuntimeIdentifier)' == 'linux-x64'">
-    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.44" GeneratePathProperty="true" />
+    <PackageReference Include="InferenceEngine.ROCm.Runtime.linux-x64" GeneratePathProperty="true" />
   </ItemGroup>
   <!-- CoreML EP is included in the base Microsoft.ML.OnnxRuntime package on macOS.
        No separate NuGet package exists for CoreML acceleration. -->
