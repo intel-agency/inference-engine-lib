@@ -41,7 +41,7 @@ jobs:
       - name: Restore InferenceEngine.Core
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore InferenceEngine.Core/InferenceEngine.Core.csproj
+        run: dotnet restore InferenceEngine.Core/InferenceEngine.Core.csproj --locked-mode
 
       - name: Generate API metadata
         env:

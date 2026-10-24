@@ -5,8 +5,15 @@
   exceptions use VersionOverride (InferenceEngine.Core.IntegrationTests
   deliberately pins the older xUnit v2 test stack).
 
-  This central file is what the Scorecard Pinned-Dependencies check credits
-  for pinning the dotnet/NuGet dependency graph.
+  This file pins DIRECT versions only; the transitive graph is pinned by the
+  per-rid lock files in lockfiles/ (see Directory.Build.props), which CI
+  restores in locked mode so a stale lock fails the build.
+
+  Note: a bare version here means "at least this version" (it resolves to the
+  floating range [x.y.z, )). Write [x.y.z] instead for an exact pin. OSSF
+  Scorecard's Pinned-Dependencies check only counts the bracketed form as
+  fixed, so unbracketed versions are reported as unpinned even though they
+  are exact in practice - see docs/OSSF Scorecard Pinned.md.
 -->
 <Project>
   <PropertyGroup>

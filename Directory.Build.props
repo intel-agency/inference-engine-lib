@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Per-RID lock files.
+         Every csproj sets RuntimeIdentifier to the HOST rid, and the package graph is
+         rid-conditional (OnnxRuntime.DirectML on win*, the ROCm runtime on linux-x64,
+         SkiaSharp.NativeAssets.* per rid family), so a single shared packages.lock.json
+         cannot be valid on all three CI platforms — a lock generated on one OS makes
+         restore fail with NU1004 on the others.
+
+         The rid is computed inline rather than read from $(RuntimeIdentifier) because
+         Directory.Build.props is imported before the csproj body assigns it; using the
+         property here yields "Project..lock.json".
+
+         CI restores in locked mode so that a stale lock fails the build. A platform with
+         no committed lock simply generates one and succeeds, so adding locks for further
+         rids is incremental and cannot break an existing leg. -->
+    <NuGetLockFilePath>$(MSBuildThisFileDirectory)lockfiles/$(MSBuildProjectName).$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier).lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+</Project>
