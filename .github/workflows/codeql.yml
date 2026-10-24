@@ -1,0 +1,68 @@
+name: CodeQL
+
+# Advanced code scanning setup: replaces Default Setup, which was configured
+# with a weekly-only schedule and therefore never re-analyzed the default
+# branch on push (code scanning alerts only update when the default branch is
+# re-analyzed). Push targets mirror build-test.yml; pull_request is
+# deliberately unfiltered so EVERY PR is scanned regardless of base branch
+# (SAST check: every merged commit should be analyzed). Categories
+# intentionally match Default Setup's ("/language:<name>") so alert history
+# carries over.
+on:
+  push:
+    branches: [main, development, release]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: the SARIF write grant lives on the analyze job, not here
+# (Token-Permissions check prefers job-level scoping).
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write # upload SARIF results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [csharp, actions]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended mirrors Default Setup's "extended" query suite
+          queries: security-extended
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Explicit build (instead of autobuild) so restore can authenticate
+      # against the GitHub Packages feed, same as build-test.yml.
+      - name: Restore dependencies
+        if: matrix.language == 'csharp'
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet restore --locked-mode
+
+      - name: Build Release
+        if: matrix.language == 'csharp'
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
+        with:
+          category: /language:${{ matrix.language }}
