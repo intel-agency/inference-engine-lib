@@ -29,7 +29,7 @@
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.1" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Extensions" Version="0.14.0" />
-    <PackageVersion Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.44" />
+    <PackageVersion Include="InferenceEngine.ROCm.Runtime.linux-x64" Version="1.24.1.62" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.402" />
