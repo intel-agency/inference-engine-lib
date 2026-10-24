@@ -170,7 +170,7 @@ jobs:
       # so the comment step cannot post there — don't let that fail the job.
       # Same-repo branch PRs (the CONTRIBUTING.md flow) always have the scope.
       - name: Create or update coverage comment
-        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         continue-on-error: true
         with:
           issue-number: ${{ github.event.pull_request.number }}
