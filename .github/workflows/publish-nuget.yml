@@ -71,10 +71,14 @@ jobs:
 
       - name: Compute Package Version
         id: version
+        env:
+          VERSION_PREFIX: ${{ vars.VERSION_PREFIX }}
+          RUN_NUMBER: ${{ github.run_number }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          PREFIX="${{ vars.VERSION_PREFIX }}"
-          RUN="${{ github.run_number }}"
-          case "${{ github.ref_name }}" in
+          PREFIX="$VERSION_PREFIX"
+          RUN="$RUN_NUMBER"
+          case "$REF_NAME" in
             development) VERSION="${PREFIX}-dev.${RUN}" ;;
             main)        VERSION="${PREFIX}-rc.${RUN}" ;;
             release)     VERSION="${PREFIX}.${RUN}" ;;
@@ -189,9 +193,12 @@ jobs:
           path: ./nupkg
 
       - name: Compute Release Version
+        env:
+          VERSION_PREFIX: ${{ vars.VERSION_PREFIX }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          PREFIX="${{ vars.VERSION_PREFIX }}"
-          RUN="${{ github.run_number }}"
+          PREFIX="$VERSION_PREFIX"
+          RUN="$RUN_NUMBER"
           VERSION="${PREFIX}.${RUN}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "Release version: $VERSION"
