@@ -116,6 +116,8 @@ foreach (var d in detections)
     Console.WriteLine($"{d.Label} {d.Confidence:P0} at [{d.X}, {d.Y}, {d.Width}, {d.Height}]");
 ```
 
+**Planned (unimplemented):** [Example-App Suite implementation specification](plan_docs/examples-suite-spec.md) — four proposed example apps; implementation is not approved.
+
 ### `InferenceEngineOptions`
 
 | Property | Default | Description |
