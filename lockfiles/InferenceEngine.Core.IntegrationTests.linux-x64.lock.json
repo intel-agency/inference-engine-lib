@@ -134,7 +134,7 @@
       "inferenceengine.core": {
         "type": "Project",
         "dependencies": {
-          "InferenceEngine.ROCm.Runtime.linux-x64": "[1.24.1.44, )",
+          "InferenceEngine.ROCm.Runtime.linux-x64": "[1.24.1.62, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.13, )",
           "Microsoft.ML.OnnxRuntime": "[1.24.1, )",
           "Microsoft.ML.OnnxRuntime.Extensions": "[0.14.0, )",
@@ -143,9 +143,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "CentralTransitive",
@@ -184,9 +184,9 @@
     "net10.0/linux-x64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",

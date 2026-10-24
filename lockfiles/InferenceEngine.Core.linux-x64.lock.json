@@ -4,9 +4,9 @@
     "net10.0": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "Direct",
@@ -97,9 +97,9 @@
     "net10.0/linux-arm64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
@@ -120,9 +120,9 @@
     "net10.0/linux-x64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
@@ -143,9 +143,9 @@
     "net10.0/osx-arm64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
@@ -166,9 +166,9 @@
     "net10.0/osx-x64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
@@ -189,9 +189,9 @@
     "net10.0/win-arm64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
@@ -212,9 +212,9 @@
     "net10.0/win-x64": {
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "Direct",
-        "requested": "[1.24.1.44, )",
-        "resolved": "1.24.1.44",
-        "contentHash": "fQQm6uiSiUCa67fH6TkExizNI5p4RH1genKcMNTqq1tsNfT9anLBfREJ1h8vVhCdbUlUTkEwzmBriDJGtIz80A=="
+        "requested": "[1.24.1.62, )",
+        "resolved": "1.24.1.62",
+        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "Direct",
