@@ -216,8 +216,13 @@ jobs:
       # Scorecard Signed-Releases check (it counts signature files among the
       # release assets — attestations alone don't register) and gives consumers
       # offline-verifiable signatures alongside the existing build provenance.
-      # cosign is preinstalled on GitHub-hosted ubuntu runners; keyless signing
-      # uses this job's OIDC token (id-token: write, granted above).
+      # cosign is NOT on the ubuntu-24.04 runner image — install it explicitly
+      # (the "preinstalled" assumption failed the first release publish after
+      # this step landed, exit 127). Keyless signing uses this job's OIDC
+      # token (id-token: write, granted above).
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
       - name: Sign release artifacts (sigstore keyless)
         run: |
           cd nupkg
