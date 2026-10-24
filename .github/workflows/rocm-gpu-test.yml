@@ -62,7 +62,7 @@ jobs:
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Build Release (linux-x64)
         run: dotnet build --configuration Release --runtime linux-x64 --no-restore

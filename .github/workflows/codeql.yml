@@ -56,7 +56,7 @@ jobs:
         if: matrix.language == 'csharp'
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Build Release
         if: matrix.language == 'csharp'

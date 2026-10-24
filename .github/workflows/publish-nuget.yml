@@ -64,7 +64,7 @@ jobs:
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Build Release
         run: dotnet build InferenceEngine.Core/InferenceEngine.Core.csproj --configuration Release --no-restore

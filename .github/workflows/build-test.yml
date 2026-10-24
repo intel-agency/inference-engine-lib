@@ -39,7 +39,7 @@ jobs:
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
         shell: bash
 
       - name: Build Release
@@ -80,7 +80,7 @@ jobs:
       - name: Restore dependencies
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dotnet restore
+        run: dotnet restore --locked-mode
         shell: bash
 
       - name: Build Release
