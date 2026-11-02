@@ -44,7 +44,7 @@
       "inferenceengine.core": {
         "type": "Project",
         "dependencies": {
-          "InferenceEngine.ROCm.Runtime.linux-x64": "[1.24.1.62, )",
+          "InferenceEngine.ROCm.Runtime.linux-x64": "[1.24.1.66, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.13, )",
           "Microsoft.ML.OnnxRuntime": "[1.24.1, )",
           "Microsoft.ML.OnnxRuntime.Extensions": "[0.14.0, )",
@@ -53,9 +53,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "CentralTransitive",
@@ -112,9 +112,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
@@ -153,9 +153,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
@@ -194,9 +194,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
@@ -235,9 +235,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
@@ -276,9 +276,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
@@ -317,9 +317,9 @@
       },
       "InferenceEngine.ROCm.Runtime.linux-x64": {
         "type": "CentralTransitive",
-        "requested": "[1.24.1.62, )",
-        "resolved": "1.24.1.62",
-        "contentHash": "jIzrlIHmWg+czKKdF9miG9LEThU+dzmtQ033lnzZ4h+ceRa3k6zIxUmlFKOZFX60AiuTwHALsUzBib9yKgZ2ug=="
+        "requested": "[1.24.1.66, )",
+        "resolved": "1.24.1.66",
+        "contentHash": "WbbmZYAOq7Xg5USzx4Scw0xJ4TSS8Thd1fhd0eQkhd4b8MooDYkLDCDMYllmdf3HkNGKKfpzHGA0M2FcfvhtPQ=="
       },
       "Microsoft.ML.OnnxRuntime": {
         "type": "CentralTransitive",
