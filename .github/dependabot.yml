@@ -1,26 +1,21 @@
 version: 2
 updates:
-  # .NET dependencies — weekly; minors/patches grouped into one PR.
-  # Microsoft.ML.OnnxRuntime majors are IGNORED: the ORT version is coupled to
-  # the InferenceEngine.ROCm.Runtime.linux-x64 native couplet (downstream
-  # inference-engine-rocm) and must be upgraded as a coordinated release.
-  - package-ecosystem: nuget
-    directory: "/"
-    schedule:
-      interval: weekly
-    groups:
-      nuget-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
-    ignore:
-      - dependency-name: "Microsoft.ML.OnnxRuntime"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "Microsoft.ML.OnnxRuntime.DirectML"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "InferenceEngine.ROCm.Runtime.linux-x64"
-        # pinned to the public ORT couplet — bump only via coordinated release
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  # .NET (nuget) ecosystem REMOVED 2026-10-24: dependabot cannot produce a
+  # mergeable PR under the locked-restore regime (#89) — it does not regenerate
+  # the per-RID packages.lock.json files (.NET 10 per-RID lock variants are
+  # unknown to dependabot), so every NuGet bump fails `dotnet restore
+  # --locked-mode` with NU1004 (see closed PRs #91/#58/#59). NuGet version
+  # bumps land via a periodic CPM PR instead: bump Directory.Packages.props,
+  # `dotnet restore` once unlocked to refresh the per-RID locks, commit, and
+  # CI verifies with --locked-mode. Keep the ORT-couplet ignore rules here for
+  # whoever runs that pass:
+  #   - Microsoft.ML.OnnxRuntime: majors AND minors are coupled to the
+  #     InferenceEngine.ROCm.Runtime.linux-x64 native couplet (downstream
+  #     inference-engine-rocm) and to OnnxRuntime.DirectML — coordinated
+  #     release only (PR #60 once proposed ORT 1.31.0 against a 1.24.1
+  #     native runtime = ABI mismatch).
+  #   - InferenceEngine.ROCm.Runtime.linux-x64: pinned to the public ORT
+  #     couplet.
 
   # Keep GitHub Actions pinned-SHA references current (security-relevant).
   - package-ecosystem: github-actions

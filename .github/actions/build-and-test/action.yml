@@ -50,13 +50,13 @@ runs:
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
         restore-keys: |
           ${{ runner.os }}-nuget-
-          
+
     - name: Restore dependencies
       env:
         NUGET_AUTH_TOKEN: ${{ inputs.nuget-token }}
-      run: dotnet restore
+      run: dotnet restore --locked-mode
       shell: bash
-      
+
     - name: Build Release
       run: dotnet build --configuration Release --no-restore
       shell: bash
