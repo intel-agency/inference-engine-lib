@@ -21,7 +21,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/intel-agency/inference-engine-lib</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/intel-agency/inference-engine-lib</PackageProjectUrl>
+    <PackageProjectUrl>https://intel-agency.github.io/inference-engine-lib</PackageProjectUrl>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <!-- Validate packed assets on every pack; baseline version pinning lands in Phase 2. -->
     <EnablePackageValidation>true</EnablePackageValidation>

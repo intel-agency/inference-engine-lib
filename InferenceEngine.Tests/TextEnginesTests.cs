@@ -265,10 +265,22 @@ public sealed class TextEnginesTests : IDisposable
         }
         catch (Exception ex)
         {
-            throw new SkipException($"Could not construct engine (tokenizer fetch failed): {ex.Message}");
+            throw new SkipException($"Could not construct engine: {ex.Message}");
         }
 
-        await engine.LoadAsync();
+        try
+        {
+            await engine.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            throw new SkipException($"MiniLM model could not be loaded ({ex.Message}): network-gated fetch failed.");
+        }
+
+        // Tokenizer load is best-effort inside LoadAsync (failure is logged, not thrown); a
+        // transient huggingface.co failure must skip this network-gated test, not fail it.
+        Skip.If(engine.TestTokenizer is null,
+            "MiniLM tokenizer could not be fetched at load time (network unavailable) — network-gated skip.");
 
         float[] embA = await engine.PredictAsync("docker container");
         float[] embB = await engine.PredictAsync("docker containerization");
@@ -317,6 +329,11 @@ public sealed class TextEnginesTests : IDisposable
                                    "The cpu-int4 export requires both .onnx and .onnx.data; " +
                                    "set InferenceEngineOptions.ModelPath to a complete bundle.");
         }
+
+        // Same best-effort tokenizer path as the embedding engine: skip, don't fail, when the
+        // fetch was unavailable at load time.
+        Skip.If(engine.TestTokenizer is null,
+            "Phi-3 tokenizer could not be fetched at load time (network unavailable) — network-gated skip.");
 
         string oneShot = await engine.PredictAsync("What is 2 + 2?");
         var streamed = new List<string>();
